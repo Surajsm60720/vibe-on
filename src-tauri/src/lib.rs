@@ -8,6 +8,9 @@ mod taskbar_controls;
 mod torrent;
 mod youtube_searcher;
 
+// Mood-based playback feature (isolated module for clean removal)
+mod mood;
+
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -849,8 +852,11 @@ async fn add_magnet_link(
     };
 
     if let Some(manager) = manager {
-        let download_path = path.unwrap_or_else(|| manager.download_dir.to_string_lossy().to_string());
-        manager.add_torrent(Some(magnet), None, download_path, None).await
+        let download_path =
+            path.unwrap_or_else(|| manager.download_dir.to_string_lossy().to_string());
+        manager
+            .add_torrent(Some(magnet), None, download_path, None)
+            .await
     } else {
         Err("Torrent backend not initialized".to_string())
     }
@@ -1222,6 +1228,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(AppState::default())
+        .manage(mood::MoodState::default())
         .invoke_handler(tauri::generate_handler![
             play_file,
             pause,
@@ -1259,6 +1266,16 @@ pub fn run() {
             delete_torrent,
             pause_torrent,
             resume_torrent,
+            // Mood feature commands
+            mood::check_essentia_available,
+            mood::analyze_track,
+            mood::get_track_audio_features,
+            mood::analyze_library,
+            mood::cancel_analysis,
+            mood::get_mood_radio_queue,
+            mood::get_similar_tracks,
+            mood::get_analysis_stats,
+            mood::clear_analysis_data,
         ])
         .setup(|_app| {
             // Initialize Windows Media Controls with the main window handle

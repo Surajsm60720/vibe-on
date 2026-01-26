@@ -32,9 +32,23 @@ function IconStats({ size = 24 }: { size?: number }) {
     );
 }
 
+import { MOOD_FEATURE_ENABLED } from '../types/mood';
+
+// Mood Radio icon
+function IconMood({ size = 24 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+            <line x1="9" y1="9" x2="9.01" y2="9" />
+            <line x1="15" y1="9" x2="15.01" y2="9" />
+        </svg>
+    );
+}
+
 interface SidebarProps {
-    view: 'tracks' | 'albums' | 'artists' | 'settings' | 'ytmusic' | 'favorites' | 'statistics' | 'torrents';
-    onViewChange: (view: 'tracks' | 'albums' | 'artists' | 'settings' | 'ytmusic' | 'favorites' | 'statistics' | 'torrents') => void;
+    view: 'tracks' | 'albums' | 'artists' | 'settings' | 'ytmusic' | 'favorites' | 'statistics' | 'torrents' | 'moodradio';
+    onViewChange: (view: 'tracks' | 'albums' | 'artists' | 'settings' | 'ytmusic' | 'favorites' | 'statistics' | 'torrents' | 'moodradio') => void;
 }
 
 const sidebarSpring = {
@@ -107,6 +121,15 @@ export function Sidebar({ view, onViewChange }: SidebarProps) {
                         count={usePlayerStore.getState().favorites.size}
                         collapsed={isCollapsed}
                     />
+                    {MOOD_FEATURE_ENABLED && (
+                        <NavItem
+                            icon={<IconMood size={24} />}
+                            label="Mood Radio"
+                            active={view === 'moodradio'}
+                            onClick={() => onViewChange('moodradio')}
+                            collapsed={isCollapsed}
+                        />
+                    )}
                 </div>
 
                 {/* Wavy Separator */}

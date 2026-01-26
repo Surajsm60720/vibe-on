@@ -22,12 +22,13 @@ import { TorrentManager } from './components/TorrentManager';
 import { FavoritesView } from './components/FavoritesView';
 import { StatisticsPage } from './components/StatisticsPage';
 import { ImmersiveView } from './components/ImmersiveView';
+import { MoodRadio } from './components/mood';
 import { AnimatePresence } from 'motion/react';
 
 function App() {
   useMediaSession(); // Initialize System Media Controls
   const { loadLibrary, status, pause, resume, playFile, immersiveMode } = usePlayerStore();
-  const [view, setView] = useState<'tracks' | 'albums' | 'artists' | 'settings' | 'ytmusic' | 'favorites' | 'statistics' | 'torrents'>('tracks');
+  const [view, setView] = useState<'tracks' | 'albums' | 'artists' | 'settings' | 'ytmusic' | 'favorites' | 'statistics' | 'torrents' | 'moodradio'>('tracks');
 
   useEffect(() => {
     loadLibrary();
@@ -178,6 +179,7 @@ function App() {
               {view === 'settings' && <SettingsPage />}
               {view === 'ytmusic' && <YouTubeMusic />}
               {view === 'torrents' && <TorrentManager />}
+              {view === 'moodradio' && <MoodRadio />}
             </div>
 
           </main>

@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { invoke } from '@tauri-apps/api/core';
 import { usePlayerStore } from '../store/playerStore';
 import { useLyricsStore } from '../store/lyricsStore';
+import { useMoodStore } from '../store/moodStore';
 import { useCoverArt } from '../hooks/useCoverArt';
 import { useSettingsStore } from '../store/settingsStore';
 import { SquigglySlider } from './SquigglySlider';
 import { MarqueeText } from './MarqueeText';
+import { TrackStats } from './mood';
 import {
     IconPrevious,
     IconPlay,
@@ -169,6 +172,7 @@ export function PlayerBar() {
     const activeCoverUrl = (isYtUrl ? (currentLibraryTrack?.cover_url || track?.cover_url) : localCoverUrl);
 
     const [isHovered, setIsHovered] = useState(false);
+    const [showStats, setShowStats] = useState(false);
     const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const handleMouseEnter = () => {
@@ -434,6 +438,22 @@ export function PlayerBar() {
 
                                 {/* Right: Actions */}
                                 <div className="flex items-center gap-2 flex-1 justify-end">
+                                    {/* Stats Button */}
+                                    {track && (
+                                        <button
+                                            onClick={() => setShowStats(true)}
+                                            className="p-2 rounded-full transition-colors text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest"
+                                            title="View Song Analysis"
+                                        >
+                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <polyline points="12 3 20 7.5 20 16.5 12 21 4 16.5 4 7.5 12 3" />
+                                                <polyline points="12 12 20 7.5" />
+                                                <polyline points="12 21 12 12" />
+                                                <polyline points="4 7.5 12 12" />
+                                            </svg>
+                                        </button>
+                                    )}
+
                                     {/* Favorite Button */}
                                     {track && (
                                         <button
@@ -569,6 +589,91 @@ export function PlayerBar() {
                     )}
                 </AnimatePresence>
             </div >
+
+            {/* Track Stats Modal */}
+            <AnimatePresence>
+                {showStats && track && (
+                    <TrackStatsModal
+                        track={track}
+                        onClose={() => setShowStats(false)}
+                    />
+                )}
+            </AnimatePresence>
         </div >
+    );
+}
+
+/// Modal wrapper for TrackStats that fetches features
+function TrackStatsModal({ track, onClose }: { track: any; onClose: () => void }) {
+    const [features, setFeatures] = useState<any>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const loadFeatures = async () => {
+            try {
+                const result = await invoke('get_track_audio_features', {
+                    path: track.path,
+                });
+                setFeatures(result);
+                setError(null);
+            } catch (err) {
+                setError(String(err));
+                setFeatures(null);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        loadFeatures();
+    }, [track.path]);
+
+    // Handle escape key
+    useEffect(() => {
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleEscape);
+        return () => window.removeEventListener('keydown', handleEscape);
+    }, [onClose]);
+
+    if (isLoading) {
+        return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto" onClick={onClose}>
+                <div className="flex flex-col items-center gap-4 pointer-events-none">
+                    <div className="animate-spin w-10 h-10 border-4 border-primary border-t-transparent rounded-full" />
+                    <p className="text-on-surface text-body-medium">Analyzing audio features...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error || !features) {
+        return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto" onClick={onClose}>
+                <div className="flex flex-col items-center gap-4 bg-surface-container rounded-2xl p-6 max-w-md mx-4 pointer-events-auto">
+                    <p className="text-error text-body-large font-medium">Analysis Failed</p>
+                    <p className="text-on-surface-variant text-body-medium text-center">{error || 'Could not load audio features'}</p>
+                    <button
+                        onClick={onClose}
+                        className="px-6 py-2 rounded-full bg-primary text-on-primary font-semibold hover:bg-primary/90"
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="fixed inset-0 z-50 pointer-events-auto" onClick={onClose}>
+            <TrackStats
+                features={features}
+                trackTitle={track.title}
+                trackArtist={track.artist}
+                onClose={onClose}
+            />
+        </div>
     );
 }
