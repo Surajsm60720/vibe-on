@@ -57,7 +57,7 @@ export function VideoPlayerOverlay({ isVisible, onClose }: VideoPlayerOverlayPro
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl"
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
                     onClick={onClose}
                 >
                     <motion.div
@@ -73,7 +73,7 @@ export function VideoPlayerOverlay({ isVisible, onClose }: VideoPlayerOverlayPro
                         <div className="absolute top-4 right-4 z-10 flex gap-2">
                             <button
                                 onClick={handleFullscreen}
-                                className="p-3 rounded-full bg-black/50 hover:bg-black/70 text-white backdrop-blur-md transition-all"
+                                className="p-3 rounded-full bg-surface-container-high hover:bg-surface-container-highest text-white transition-all shadow-lg"
                                 title="Toggle Fullscreen"
                             >
                                 <svg
@@ -89,7 +89,7 @@ export function VideoPlayerOverlay({ isVisible, onClose }: VideoPlayerOverlayPro
                             </button>
                             <button
                                 onClick={onClose}
-                                className="p-3 rounded-full bg-black/50 hover:bg-black/70 text-white backdrop-blur-md transition-all"
+                                className="p-3 rounded-full bg-surface-container-high hover:bg-surface-container-highest text-white transition-all shadow-lg"
                                 title="Close Video"
                             >
                                 <svg
@@ -112,7 +112,7 @@ export function VideoPlayerOverlay({ isVisible, onClose }: VideoPlayerOverlayPro
                                 initial={{ y: 20, opacity: 0 }}
                                 animate={{ y: 0, opacity: 1 }}
                                 transition={{ delay: 0.2 }}
-                                className="bg-black/50 backdrop-blur-md rounded-xl p-4 text-white"
+                                className="bg-surface-container-high rounded-xl p-4 text-white shadow-lg"
                             >
                                 <h3 className="text-lg font-semibold truncate">{status.track.title}</h3>
                                 <p className="text-sm text-white/70 truncate">{status.track.artist}</p>

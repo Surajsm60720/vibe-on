@@ -1,56 +1,90 @@
-# Vibe On 🎵
+<p align="center">
+  <img src="public/vibe-on-fked.png" width="160" alt="Vibe-On Logo" />
+</p>
+
+# VIBE-ON! 🎵
 
 > **Experience Your Music, Elevated.**
 
-Vibe On is a modern, aesthetically crafted music player built for those who care about how their music *feels*. merging your local library with the power of the web, wrapped in a stunning, dynamically theming interface.
+VIBE-ON! is a modern, aesthetically crafted music player built for those who care about how their music *feels*. It merges your local library with the power of the web, wrapped in a stunning, dynamically theming interface that reacts to your music in real-time.
 
-## ✨ Features
+---
 
-### 🎨 Dynamic Immersion
--   **Contextual Theming**: The entire UI adapts continuously to the colors of your current track's album art.
--   **Material 3 Design**: Smooth transitions, pill-shaped interactive elements, and modern typography.
--   **Ambient Backgrounds**: Optional glassmorphism and blurred aesthetic modes.
+## ✨ Features at a Glance
 
-### 🎤 Synchronized Lyrics
--   **Real-time Synced Lyrics**: Sing along with scrolling, time-coded lyrics.
--   **Plain Text Fallback**: Automatic fallback to static lyrics when time data isn't available.
--   **Smart Caching**: Lyrics are fetched asynchronously and cached locally for instant load times on replay.
--   **Interactive**: Click any line to seek to that part of the song.
+*   **🎨 Dynamic Immersion**: UI themes adapt continuously to the colors of your current track's album art using Material 3 Expressive logic.
+*   **🎤 Synchronized Lyrics**: Real-time scrolling, time-coded lyrics with manual LRC file support and smart local caching.
+*   **🌐 YouTube Music Integration**: Seamlessly switch between your local collection and the vast world of YouTube Music.
+*   **🧲 Integrated Torrent Engine**: Search, browse, and download high-quality music directly within the application.
+*   **📺 Casting Support**: Stream your favorite tunes to Chromecast and other compatible external devices.
+*   **📊 Listening Statistics**: Deep insights into your listening habits with beautiful visualizations of top tracks and artists.
+*   **🎧 Immersive Visuals**: Ambient backgrounds, glassmorphism, and smooth organic motion for a premium feel.
+*   **📡 Discord Rich Presence**: Share what you're vibing to with your friends on Discord.
+*   **⚡ Native Performance**: Powered by **Rust** and **Tauri** for a lightweight, fast, and secure experience.
+*   **🎹 System Integration**: Native taskbar controls, media keys, and Windows system media integration.
 
-### 📊 Listening Statistics
--   **Visual Breakdown**: See your top tracks, top artists, and total listening time.
--   **Beautiful Charts**: Data visualization that matches your current theme.
--   **Insights**: Track your library growth and favorites.
+---
 
-### ⚡ Performance & Core
--   **Rust Backend**: Powered by Tauri for native-level performance and low resource usage.
--   **Hybrid Engine**: Seamlessly switch between local files and YouTube Music (web view integration).
--   **Discord RPC**: Show off what you're listening to with rich presence.
+## 📸 Preview
+
+![App Screenshot](public/appss.png)
+
+---
+
+## 🎨 Design Philosophy
+
+Vibe-On follows the **Material 3 Expressive** design system, focusing on:
+- **Organic Motion**: Mathematically harmonic transitions (250ms - 500ms).
+- **Soft Geometry**: Extra-large rounding (32px corners) for a friendly, modern look.
+- **Contextual Theming**: Derives its entire palette from album art for maximum immersion.
+- **Premium Typography**: Uses the `Outfit` geometric sans-serif for clarity and style.
+
+---
 
 ## 🛠️ Tech Stack
 
--   **Frontend**: React, TypeScript, Tailwind CSS, Framer Motion
--   **Backend**: Rust, Tauri
--   **State Management**: Zustand
--   **Design System**: Material 3 (Custom implementation)
+-   **Frontend**: React 19, TypeScript, Tailwind CSS, Framer Motion
+-   **Backend**: Rust, Tauri 2.0
+-   **Database**: SQLite (via `rusqlite`) for fast, local persistent storage
+-   **Metadata**: Lofty (Rust-based high-performance tag processing)
+-   **Color Engine**: `@material/material-color-utilities`
+
+---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
--   Node.js & npm
--   Rust (cargo)
 
-### Development
-```bash
-# Install dependencies
-npm install
+Ensure you have the following installed on your system:
+- **Node.js** (LTS recommended) & **npm**
+- **Rust** & **Cargo** (via [rustup.rs](https://rustup.rs/))
+- System dependencies for Tauri (refer to the [Tauri documentation](https://tauri.app/start/prerequisites/))
 
-# Run in development mode
-npm run tauri dev
-```
+### Installation & Setup
 
-### Build
-```bash
-# Build for production
-npm run tauri build
-```
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/yourusername/vibe-on.git
+    cd vibe-on
+    ```
+
+2.  **Install Dependencies**
+    ```bash
+    npm install
+    ```
+
+3.  **Run in Development Mode**
+    ```bash
+    npm run tauri dev
+    ```
+
+4.  **Build for Production**
+    ```bash
+    npm run tauri build
+    ```
+
+---
+
+<p align="center">
+  May all the Melodies be blessed ✨.
+</p>

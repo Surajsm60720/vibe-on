@@ -414,8 +414,12 @@ async fn init_library(
         return Err("Path is not a directory".to_string());
     }
 
+    println!("[Library] Scanning folder: {:?}", path_obj);
     let files = scan_music_folder_helper(path_obj);
+    println!("[Library] Found {} files.", files.len());
+
     let mut tracks = Vec::new();
+    let mut inserted_count = 0;
 
     // 3. Process metadata and insert into DB
     let db_guard = state.db.lock().unwrap();
@@ -423,12 +427,18 @@ async fn init_library(
         for file_path in files {
             // Re-use logic from get_track_metadata but we need it available here
             if let Ok((track, cover_data)) = get_track_metadata_helper(&file_path) {
-                if let Err(e) = db.insert_track(&track, cover_data.as_deref()) {
-                    eprintln!("Failed to insert track {}: {}", file_path, e);
+                match db.insert_track(&track, cover_data.as_deref()) {
+                    Ok(_) => inserted_count += 1,
+                    Err(e) => eprintln!("[Library] Failed to insert track {}: {}", file_path, e),
                 }
                 tracks.push(track);
             }
         }
+        println!(
+            "[Library] Successfully processed {}/{} tracks.",
+            inserted_count,
+            tracks.len()
+        );
 
         // Return all tracks currently in DB (or just the new ones? Use get_all_tracks for consistency)
         db.get_all_tracks().map_err(|e| e.to_string())
@@ -472,6 +482,7 @@ fn scan_music_folder_helper(path: &Path) -> Vec<String> {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
+                    // println!("Entering directory: {:?}", path);
                     scan_recursive(&path, extensions, files);
                 } else if let Some(ext) = path.extension() {
                     if let Some(ext_str) = ext.to_str() {
@@ -483,6 +494,8 @@ fn scan_music_folder_helper(path: &Path) -> Vec<String> {
                     }
                 }
             }
+        } else {
+            eprintln!("Failed to read directory: {:?}", dir);
         }
     }
 
@@ -526,31 +539,36 @@ fn get_track_metadata_helper(path_str: &str) -> Result<(TrackInfo, Option<Vec<u8
     let properties = tagged_file.properties();
     let duration_secs = properties.duration().as_secs_f64();
 
-    let (title, artist, album) = if let Some(tag) = tagged_file.primary_tag() {
-        (
-            tag.title().map(|s| s.to_string()).unwrap_or_else(|| {
+    let (title, artist, album, disc_number, track_number) =
+        if let Some(tag) = tagged_file.primary_tag() {
+            (
+                tag.title().map(|s| s.to_string()).unwrap_or_else(|| {
+                    path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("Unknown")
+                        .to_string()
+                }),
+                tag.artist()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "Unknown Artist".to_string()),
+                tag.album()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "Unknown Album".to_string()),
+                tag.disk(),
+                tag.track(),
+            )
+        } else {
+            (
                 path.file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("Unknown")
-                    .to_string()
-            }),
-            tag.artist()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "Unknown Artist".to_string()),
-            tag.album()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "Unknown Album".to_string()),
-        )
-    } else {
-        (
-            path.file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Unknown")
-                .to_string(),
-            "Unknown Artist".to_string(),
-            "Unknown Album".to_string(),
-        )
-    };
+                    .to_string(),
+                "Unknown Artist".to_string(),
+                "Unknown Album".to_string(),
+                None,
+                None,
+            )
+        };
 
     // Extract picture
     let mut cover_data = tagged_file
@@ -577,6 +595,8 @@ fn get_track_metadata_helper(path_str: &str) -> Result<(TrackInfo, Option<Vec<u8
             album,
             duration_secs,
             cover_image: None, // Will be populated from DB later
+            disc_number,
+            track_number,
         },
         cover_data,
     ))
@@ -853,9 +873,12 @@ async fn add_magnet_link(
 
     if let Some(manager) = manager {
         let download_path =
+           
             path.unwrap_or_else(|| manager.download_dir.to_string_lossy().to_string());
         manager
+            
             .add_torrent(Some(magnet), None, download_path, None)
+            
             .await
     } else {
         Err("Torrent backend not initialized".to_string())
@@ -1215,6 +1238,15 @@ fn move_yt_window(x: f64, y: f64, width: f64, height: f64, app: AppHandle) -> Re
 // App Entry Point
 // ============================================================================
 
+#[tauri::command]
+async fn search_torrents(
+    query: String,
+    sort_by: Option<String>,
+    sort_order: Option<String>,
+) -> Result<Vec<torrent::search::SearchResult>, String> {
+    torrent::search::search_nyaa(query, sort_by, sort_order).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -1276,6 +1308,7 @@ pub fn run() {
             mood::get_similar_tracks,
             mood::get_analysis_stats,
             mood::clear_analysis_data,
+            search_torrents,
         ])
         .setup(|_app| {
             // Initialize Windows Media Controls with the main window handle

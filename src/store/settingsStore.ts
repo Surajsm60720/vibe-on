@@ -16,6 +16,10 @@ interface SettingsStore {
     setAlbumArtStyle: (style: AlbumArtStyle) => void;
     setExpandedArtMode: (mode: ExpandedArtMode) => void;
     setAutoplay: (enabled: boolean) => void;
+
+    // Downloads
+    downloadPath: string | null;
+    setDownloadPath: (path: string | null) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -30,6 +34,10 @@ export const useSettingsStore = create<SettingsStore>()(
             setAlbumArtStyle: (style) => set({ albumArtStyle: style }),
             setExpandedArtMode: (mode) => set({ expandedArtMode: mode }),
             setAutoplay: (enabled) => set({ autoplay: enabled }),
+
+            // Downloads
+            downloadPath: null,
+            setDownloadPath: (path) => set({ downloadPath: path }),
         }),
         {
             name: 'vibe-settings', // localStorage key

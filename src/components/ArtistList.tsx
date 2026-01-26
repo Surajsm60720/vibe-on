@@ -4,7 +4,7 @@ import { usePlayerStore } from '../store/playerStore';
 import { useCoverArt } from '../hooks/useCoverArt';
 import { IconMicrophone, IconPlay } from './Icons';
 import type { TrackDisplay } from '../types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 interface Artist {
     name: string;
@@ -123,20 +123,13 @@ export function ArtistList() {
         if (!artist) return null;
 
         return (
-            <AnimatePresence mode='wait'>
-                <motion.div
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="h-full"
-                >
-                    <ArtistDetailView
-                        artist={artist}
-                        onBack={() => setSelectedArtist(null)}
-                        onPlay={() => handlePlayArtist(artist)}
-                    />
-                </motion.div>
-            </AnimatePresence>
+            <div className="h-full">
+                <ArtistDetailView
+                    artist={artist}
+                    onBack={() => setSelectedArtist(null)}
+                    onPlay={() => handlePlayArtist(artist)}
+                />
+            </div>
         );
     }
 
@@ -164,10 +157,7 @@ function ArtistCard({ artist, onClick, onPlay }: { artist: Artist, onClick: () =
     const coverUrl = useCoverArt(artist.cover);
 
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.2, 0, 0, 1] as any }}
+        <div
             onClick={onClick}
             className="group flex flex-col gap-3 p-3 rounded-[1.5rem] hover:bg-surface-container-high transition-colors cursor-pointer"
         >
@@ -190,7 +180,7 @@ function ArtistCard({ artist, onClick, onPlay }: { artist: Artist, onClick: () =
                     {artist.albumCount} albums • {artist.tracks.length} songs
                 </div>
             </div>
-        </motion.div>
+        </div>
     );
 }
 
@@ -198,58 +188,28 @@ function ArtistDetailView({ artist, onBack, onPlay }: { artist: Artist, onBack: 
     const { playQueue } = usePlayerStore();
     const coverUrl = useCoverArt(artist.cover);
 
-    const containerVariants = {
-        hidden: { opacity: 0 },
-        visible: {
-            opacity: 1,
-            transition: {
-                staggerChildren: 0.1,
-                delayChildren: 0.2
-            }
-        }
-    };
-
-    const itemVariants = {
-        hidden: { opacity: 0, y: 20 },
-        visible: {
-            opacity: 1,
-            y: 0,
-            transition: { duration: 0.5, ease: [0.2, 0, 0, 1] as any }
-        }
-    };
-
     return (
-        <motion.div
-            className="flex flex-col h-full bg-surface"
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-        >
+        <div className="flex flex-col h-full bg-surface">
             {/* Header */}
             <div className="p-8 flex gap-8 items-center bg-surface-container-low shrink-0">
-                <motion.div
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ duration: 0.6, ease: [0.2, 0, 0, 1] as any }}
-                    className="w-52 h-52 shrink-0 shadow-elevation-3"
-                >
+                <div className="w-52 h-52 shrink-0 shadow-elevation-3">
                     <M3ArchImage
                         src={coverUrl}
                         fallback={<IconMicrophone size={64} />}
                     />
-                </motion.div>
+                </div>
 
                 <div className="flex flex-col gap-4 min-w-0 flex-1">
-                    <motion.div variants={itemVariants}>
+                    <div>
                         <div className="text-label-large font-medium text-on-surface-variant uppercase tracking-wider mb-1">Artist</div>
                         <h1 className="text-display-medium font-bold text-on-surface tracking-tight truncate">{artist.name}</h1>
-                    </motion.div>
+                    </div>
 
-                    <motion.div variants={itemVariants} className="text-title-medium text-on-surface-variant">
+                    <div className="text-title-medium text-on-surface-variant">
                         {artist.albumCount} Albums • {artist.tracks.length} Songs
-                    </motion.div>
+                    </div>
 
-                    <motion.div variants={itemVariants} className="flex gap-3 mt-2">
+                    <div className="flex gap-3 mt-2">
                         <button
                             onClick={onPlay}
                             className="h-10 px-6 bg-primary text-on-primary rounded-full font-medium hover:bg-primary/90 flex items-center gap-2 shadow-elevation-1 transition-transform active:scale-95"
@@ -262,12 +222,12 @@ function ArtistDetailView({ artist, onBack, onPlay }: { artist: Artist, onBack: 
                         >
                             Back
                         </button>
-                    </motion.div>
+                    </div>
                 </div>
             </div>
 
             {/* Tracklist */}
-            <motion.div variants={itemVariants} className="flex-1 p-6">
+            <div className="flex-1 p-6">
                 <Virtuoso
                     style={{ height: '100%' }}
                     data={artist.tracks}
@@ -291,7 +251,7 @@ function ArtistDetailView({ artist, onBack, onPlay }: { artist: Artist, onBack: 
                         Footer: () => <div className="h-24"></div>
                     }}
                 />
-            </motion.div>
-        </motion.div>
+            </div>
+        </div>
     );
 }

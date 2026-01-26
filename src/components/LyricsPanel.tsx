@@ -110,7 +110,7 @@ export function LyricsPanel() {
             >
                 {/* Backdrop - click to close */}
                 <div
-                    className="absolute inset-0 bg-black/60 backdrop-blur-xl"
+                    className="absolute inset-0 bg-black/80"
                     style={{ pointerEvents: 'auto' }}
                     onClick={closeLyrics}
                 />

@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS tracks (
     artist TEXT NOT NULL,
     album TEXT NOT NULL,
     duration_secs REAL NOT NULL,
+    disc_number INTEGER,
+    track_number INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

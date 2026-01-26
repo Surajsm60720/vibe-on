@@ -40,6 +40,8 @@ interface PlayerStore {
     setVolume: (value: number) => Promise<void>;
     seek: (value: number) => Promise<void>;
     refreshStatus: () => Promise<void>;
+    refreshLibrary: () => Promise<void>; // Add to interface
+
     scanFolder: (path: string) => Promise<void>;
     removeFolder: (path: string) => Promise<void>;
     loadLibrary: () => Promise<void>;
@@ -115,6 +117,10 @@ export const usePlayerStore = create<PlayerStore>()(
             clearAllData: async () => {
                 console.log('[PlayerStore] clearAllData called');
                 try {
+                    // 1. Clear Backend Data
+                    await invoke('clear_all_data');
+
+                    // 2. Clear Local State
                     set({
                         status: { state: 'Stopped', track: null, position_secs: 0, volume: 1.0 },
                         library: [],
@@ -136,6 +142,7 @@ export const usePlayerStore = create<PlayerStore>()(
                     });
                 } catch (e) {
                     console.error('[PlayerStore] Failed to clear data:', e);
+                    set({ error: String(e) });
                 }
             },
 
@@ -384,6 +391,26 @@ export const usePlayerStore = create<PlayerStore>()(
                     set({ status });
                 } catch (e) {
                     console.error('Failed to refresh status:', e);
+                }
+            },
+
+            refreshLibrary: async () => {
+                try {
+                    console.log('[PlayerStore] Refreshing library...');
+                    set({ isLoading: true });
+                    const { folders } = get();
+
+                    // Re-scan all folders
+                    for (const folder of folders) {
+                        console.log("Rescanning:", folder);
+                        await invoke('init_library', { path: folder });
+                    }
+
+                    // Reload tracks
+                    await get().loadLibrary();
+                } catch (e) {
+                    console.error("Failed to refresh library", e);
+                    set({ error: String(e), isLoading: false });
                 }
             },
 

@@ -1,35 +1,23 @@
 import { motion } from 'motion/react';
 import { usePlayerStore } from '../store/playerStore';
 import { useCoverArt } from '../hooks/useCoverArt';
-import { useImageColors } from '../hooks/useImageColors';
-import { IconClose, IconPlay, IconPause, IconNext, IconPrevious, IconMusicNote, IconShuffle } from './Icons';
+import { useThemeStore } from '../store/themeStore';
+import { IconClose, IconPlay, IconPause, IconNext, IconPrevious, IconMusicNote, IconShuffle, IconRepeat, IconHeart, IconVolume } from './Icons';
 import { SquigglySlider } from './SquigglySlider';
 import { SideLyrics } from './SideLyrics';
 import { QueueItem } from './RightPanel';
 
 export function ImmersiveView() {
-    const { status, toggleImmersiveMode, toggleShuffle, isShuffled, pause, resume, nextTrack, prevTrack, seek, library, queue, playFile } = usePlayerStore();
+    const { status, toggleImmersiveMode, toggleShuffle, isShuffled, pause, resume, nextTrack, prevTrack, seek, library, queue, playFile, repeatMode, cycleRepeatMode } = usePlayerStore();
     const { track, state, position_secs } = status;
+
+    // Consume global colors instead of re-extracting
+    const colors = useThemeStore(state => state.colors);
 
     // Get correct cover from library (status.track might not have full path)
     const currentIndex = library.findIndex(t => t.path === track?.path);
     const currentLibraryTrack = currentIndex >= 0 ? library[currentIndex] : null;
-    const coverUrl = useCoverArt(currentLibraryTrack?.cover_image || track?.cover_image); // Fallback to track.cover_image
-
-    const colors = useImageColors(coverUrl);
-
-    // If not in immersive mode, we don't render anything (handled by parent usually, but good to have safeguard if we use AnimatePresence in App)
-    // Actually, we'll let App handle the unmount or use AnimatePresence there. 
-    // If we want exit animations, we should return null here? 
-    // No, App.tsx will wrapping it in AnimatePresence. We just define the component.
-
-    // Background gradient style
-    const backgroundStyle = {
-        background: `linear-gradient(135deg, ${colors.surfaceContainerLowest} 0%, ${colors.surfaceContainer} 100%)`,
-    };
-
-    // Dynamic text colors
-    // We'll use the generated 'onSurface' etc for accessibility
+    const coverUrl = useCoverArt(currentLibraryTrack?.cover_image || track?.cover_image);
 
     const isPlaying = state === 'Playing';
 
@@ -40,24 +28,12 @@ export function ImmersiveView() {
             exit={{ opacity: 0, y: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
             className="fixed inset-0 z-[100] flex flex-col items-center justify-center overflow-hidden"
-            style={backgroundStyle}
+            style={{ backgroundColor: colors.surfaceContainerLowest }}
         >
-            {/* Background Glows/Blobs for extra immersion */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-40">
-                <div
-                    className="absolute top-[-20%] left-[-20%] w-[80%] h-[80%] rounded-full blur-[120px] mix-blend-soft-light animate-pulse"
-                    style={{ backgroundColor: colors.primaryContainer }}
-                />
-                <div
-                    className="absolute bottom-[-20%] right-[-20%] w-[80%] h-[80%] rounded-full blur-[120px] mix-blend-soft-light animate-pulse"
-                    style={{ backgroundColor: colors.tertiaryContainer, animationDelay: '2s' }}
-                />
-            </div>
-
-            {/* Close Button - Absolutely Positioned */}
+            {/* Close Button */}
             <button
                 onClick={toggleImmersiveMode}
-                className="absolute top-8 right-8 z-50 p-4 rounded-full bg-black/10 hover:bg-black/20 backdrop-blur-md transition-colors text-white"
+                className="absolute top-8 right-8 z-50 p-4 rounded-full transition-colors hover:bg-black/10"
                 style={{ color: colors.onSurface }}
             >
                 <IconClose size={32} />
@@ -67,7 +43,13 @@ export function ImmersiveView() {
             <div className="relative z-10 w-full h-full flex flex-col xl:flex-row gap-6 p-6 md:p-12 overflow-hidden">
 
                 {/* Left: Queue (Visible on XL screens) */}
-                <div className="hidden xl:flex flex-col w-80 shrink-0 gap-4 overflow-hidden rounded-2xl bg-black/5 backdrop-blur-sm border border-white/5 p-4">
+                <div
+                    className="hidden xl:flex flex-col w-80 shrink-0 gap-4 overflow-hidden rounded-2xl border p-4"
+                    style={{
+                        backgroundColor: colors.surfaceContainer,
+                        borderColor: colors.outlineVariant
+                    }}
+                >
                     <h3 className="text-title-medium font-bold px-2" style={{ color: colors.onSurface }}>Up Next</h3>
                     <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
                         {queue.map((t, i) => (
@@ -89,10 +71,8 @@ export function ImmersiveView() {
                         <div className="relative group shrink-0">
                             <motion.div
                                 layoutId="immersive-art"
-                                className="w-[30vh] h-[30vh] md:w-[40vh] md:h-[40vh] rounded-[2rem] md:rounded-[3rem] shadow-2xl overflow-hidden"
-                                style={{
-                                    boxShadow: `0 20px 50px -12px rgba(0,0,0,0.5)`
-                                }}
+                                className="w-[30vh] h-[30vh] md:w-[40vh] md:h-[40vh] rounded-[2rem] md:rounded-[3rem] overflow-hidden"
+                                style={{ backgroundColor: colors.surfaceContainerHigh }}
                             >
                                 {coverUrl ? (
                                     <img
@@ -147,48 +127,97 @@ export function ImmersiveView() {
                             </div>
 
                             {/* Playback Controls */}
-                            <div className="flex items-center gap-8">
-                                <button
-                                    onClick={toggleShuffle}
-                                    className="p-3 rounded-full transition-transform active:scale-95 hover:bg-black/5"
-                                    style={{ color: isShuffled ? colors.primary : colors.onSurfaceVariant }}
-                                >
-                                    <IconShuffle size={32} />
-                                </button>
+                            <div className="flex flex-col items-center gap-6 w-full">
+                                {/* Main Transport Controls */}
+                                <div className="flex items-center gap-8 md:gap-12">
+                                    <button
+                                        onClick={toggleShuffle}
+                                        className="p-3 rounded-full transition-transform active:scale-95 hover:bg-black/5 relative group"
+                                        style={{ color: isShuffled ? colors.primary : colors.onSurfaceVariant }}
+                                        title={isShuffled ? 'Shuffle On' : 'Shuffle Off'}
+                                    >
+                                        <IconShuffle size={28} />
+                                    </button>
 
-                                <button
-                                    onClick={prevTrack}
-                                    className="p-3 rounded-full transition-transform active:scale-95 hover:bg-black/5"
-                                    style={{ color: colors.onSurface }}
-                                >
-                                    <IconPrevious size={48} />
-                                </button>
+                                    <button
+                                        onClick={prevTrack}
+                                        className="p-3 rounded-full transition-transform active:scale-95 hover:bg-black/5"
+                                        style={{ color: colors.onSurface }}
+                                    >
+                                        <IconPrevious size={42} />
+                                    </button>
 
-                                <button
-                                    onClick={isPlaying ? pause : resume}
-                                    className="p-6 rounded-[2rem] shadow-xl hover:scale-105 active:scale-95 transition-all"
-                                    style={{
-                                        backgroundColor: colors.primary,
-                                        color: colors.onPrimary
-                                    }}
-                                >
-                                    {isPlaying ? <IconPause size={48} /> : <IconPlay size={48} />}
-                                </button>
+                                    <button
+                                        onClick={isPlaying ? pause : resume}
+                                        className="p-6 rounded-[2.5rem] shadow-xl hover:scale-105 active:scale-95 transition-all"
+                                        style={{
+                                            backgroundColor: colors.primary,
+                                            color: colors.onPrimary,
+                                            boxShadow: `0 8px 24px -6px ${colors.primary}60`
+                                        }}
+                                    >
+                                        {isPlaying ? <IconPause size={48} /> : <IconPlay size={48} />}
+                                    </button>
 
-                                <button
-                                    onClick={nextTrack}
-                                    className="p-3 rounded-full transition-transform active:scale-95 hover:bg-black/5"
-                                    style={{ color: colors.onSurface }}
-                                >
-                                    <IconNext size={48} />
-                                </button>
+                                    <button
+                                        onClick={nextTrack}
+                                        className="p-3 rounded-full transition-transform active:scale-95 hover:bg-black/5"
+                                        style={{ color: colors.onSurface }}
+                                    >
+                                        <IconNext size={42} />
+                                    </button>
+
+                                    <button
+                                        onClick={cycleRepeatMode}
+                                        className="p-3 rounded-full transition-transform active:scale-95 hover:bg-black/5 relative group"
+                                        style={{ color: repeatMode !== 'off' ? colors.primary : colors.onSurfaceVariant }}
+                                        title={`Repeat: ${repeatMode}`}
+                                    >
+                                        <IconRepeat size={28} mode={repeatMode} />
+                                    </button>
+                                </div>
+
+                                {/* Secondary Controls Row */}
+                                <div className="flex items-center gap-6 md:gap-10 mt-2">
+                                    {/* Favorite Toggle */}
+                                    <button
+                                        onClick={() => usePlayerStore.getState().toggleFavorite(track?.path || '')}
+                                        className="p-3 rounded-full hover:bg-black/5 transition-colors"
+                                        style={{ color: usePlayerStore.getState().isFavorite(track?.path || '') ? colors.tertiary : colors.onSurfaceVariant }}
+                                        title="Toggle Favorite"
+                                    >
+                                        <IconHeart size={26} filled={usePlayerStore.getState().isFavorite(track?.path || '')} />
+                                    </button>
+
+                                    {/* Volume Slider (Compact) */}
+                                    <div className="flex items-center gap-3 group">
+                                        <IconVolume size={24} style={{ color: colors.onSurfaceVariant }} />
+                                        <input
+                                            type="range"
+                                            min="0" max="1" step="0.01"
+                                            value={status.volume}
+                                            onChange={(e) => usePlayerStore.getState().setVolume(parseFloat(e.target.value))}
+                                            className="w-24 accent-current h-1 rounded-full opacity-60 group-hover:opacity-100 transition-opacity"
+                                            style={{ accentColor: colors.primary }}
+                                        />
+                                    </div>
+
+                                    {/* Show Lyrics/Queue Toggle (Mobile/Small screens only - Logic TBD, for now just an icon) */}
+                                    {/* We can reuse the SideLyrics logic or just show this as a visual placeholder for 'more' options if needed, but per request we added the main ones. */}
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 {/* Right: Lyrics (Visible on XL screens) */}
-                <div className="hidden xl:flex flex-col w-96 shrink-0 overflow-hidden rounded-2xl bg-black/5 backdrop-blur-sm border border-white/5 relative">
+                <div
+                    className="hidden xl:flex flex-col w-96 shrink-0 overflow-hidden rounded-2xl border relative"
+                    style={{
+                        backgroundColor: colors.surfaceContainer,
+                        borderColor: colors.outlineVariant
+                    }}
+                >
                     <SideLyrics variant="carousel" />
                 </div>
 

@@ -1,10 +1,11 @@
 import { useState, useMemo, forwardRef } from 'react';
 import { VirtuosoGrid, Virtuoso } from 'react-virtuoso';
 import { usePlayerStore } from '../store/playerStore';
+import { useNavigationStore } from '../store/navigationStore';
 import { useCoverArt } from '../hooks/useCoverArt';
 import type { TrackDisplay } from '../types';
-import { IconMusicNote, IconPlay } from './Icons';
-import { motion, AnimatePresence } from 'framer-motion';
+import { IconMusicNote, IconPlay, IconAlbum } from './Icons';
+import { motion } from 'framer-motion';
 
 
 interface Album {
@@ -14,7 +15,7 @@ interface Album {
     tracks: TrackDisplay[];
 }
 
-// M3 Very Sunny Shape for Play Button - positioned outside bottom right
+// M3 Very Sunny Shape for Play Button
 const VerySunnyPlayButton = ({ onClick }: { onClick: (e: React.MouseEvent) => void }) => {
     const [isHovered, setIsHovered] = useState(false);
 
@@ -39,7 +40,7 @@ const VerySunnyPlayButton = ({ onClick }: { onClick: (e: React.MouseEvent) => vo
     );
 };
 
-// M3 Rounded Square Shape Component (using SVG clip)
+// M3 Rounded Square
 const M3RoundedSquareImage = ({ src, fallback }: { src: string | null, fallback: React.ReactNode }) => {
     const uniqueId = useMemo(() => `rounded-square-${Math.random().toString(36).substr(2, 9)}`, []);
 
@@ -64,7 +65,7 @@ const M3RoundedSquareImage = ({ src, fallback }: { src: string | null, fallback:
     );
 };
 
-// Virtuoso Custom Components - Defined outside to prevent re-renders
+// Virtuoso Custom Components
 const GridList = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<'div'>>(({ style, children, ...props }, ref) => (
     <div
         ref={ref}
@@ -83,16 +84,22 @@ const GridItem = ({ children, ...props }: React.ComponentPropsWithoutRef<'div'>)
 export function AlbumGrid() {
     const library = usePlayerStore(state => state.library);
     const playQueue = usePlayerStore(state => state.playQueue);
-    const [selectedAlbum, setSelectedAlbum] = useState<string | null>(null);
+    const { selectedAlbumKey, navigateToAlbum, clearSelectedAlbum } = useNavigationStore();
 
     const albums = useMemo(() => {
         const albumMap = new Map<string, Album>();
 
+        // Regex to normalize album names by stripping "Disc X", "CD X" suffixes
+        const normalizeAlbumName = (name: string) => {
+            return name.replace(/\s*[\(\[]?(?:Disc|CD)\s*\d+[\)\]]?\s*$/i, "").trim();
+        };
+
         library.forEach(track => {
-            const key = `${track.album}-${track.artist}`;
+            const normalizedName = normalizeAlbumName(track.album);
+            const key = `${normalizedName}-${track.artist}`;
             if (!albumMap.has(key)) {
                 albumMap.set(key, {
-                    name: track.album,
+                    name: normalizedName,
                     artist: track.artist,
                     cover: track.cover_image || null,
                     tracks: []
@@ -101,7 +108,8 @@ export function AlbumGrid() {
             albumMap.get(key)?.tracks.push(track);
         });
 
-        return Array.from(albumMap.values());
+        // Use array sort (stable or not) - sorting by name
+        return Array.from(albumMap.values()).sort((a, b) => a.name.localeCompare(b.name));
     }, [library]);
 
     const handlePlayAlbum = (album: Album) => {
@@ -110,25 +118,21 @@ export function AlbumGrid() {
         }
     };
 
-    if (selectedAlbum) {
-        const album = albums.find(a => `${a.name}-${a.artist}` === selectedAlbum);
-        if (!album) return null;
+    if (selectedAlbumKey) {
+        const album = albums.find(a => `${a.name}-${a.artist}` === selectedAlbumKey);
+
+        if (!album) {
+            clearSelectedAlbum();
+            return null;
+        }
 
         return (
-            <AnimatePresence mode='wait'>
-                <motion.div
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="h-full"
-                >
-                    <AlbumDetailView
-                        album={album}
-                        onBack={() => setSelectedAlbum(null)}
-                        onPlay={() => handlePlayAlbum(album)}
-                    />
-                </motion.div>
-            </AnimatePresence>
+            <div className="h-full">
+                <AlbumDetailView
+                    album={album}
+                    onBack={() => clearSelectedAlbum()}
+                />
+            </div>
         );
     }
 
@@ -145,7 +149,7 @@ export function AlbumGrid() {
                 <AlbumCard
                     key={`${album.name}-${album.artist}`}
                     album={album}
-                    onClick={() => setSelectedAlbum(`${album.name}-${album.artist}`)}
+                    onClick={() => navigateToAlbum(album.name, album.artist)}
                     onPlay={() => handlePlayAlbum(album)}
                 />
             )}
@@ -157,14 +161,10 @@ function AlbumCard({ album, onClick, onPlay }: { album: Album, onClick: () => vo
     const coverUrl = useCoverArt(album.cover);
 
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.2, 0, 0, 1] as any }}
+        <div
             onClick={onClick}
             className="group flex flex-col gap-4 p-4 rounded-[2rem] hover:bg-surface-container-high transition-colors cursor-pointer"
         >
-            {/* Album Cover with M3 Rounded Square Shape */}
             <div className="aspect-square w-full relative">
                 <div className="w-full h-full">
                     <M3RoundedSquareImage
@@ -172,8 +172,6 @@ function AlbumCard({ album, onClick, onPlay }: { album: Album, onClick: () => vo
                         fallback={<IconMusicNote size={64} />}
                     />
                 </div>
-
-                {/* Play Button - Very Sunny Shape - Outside bottom right */}
                 <VerySunnyPlayButton onClick={(e) => { e.stopPropagation(); onPlay(); }} />
             </div>
 
@@ -181,69 +179,103 @@ function AlbumCard({ album, onClick, onPlay }: { album: Album, onClick: () => vo
                 <div className="text-title-large font-semibold text-on-surface truncate" title={album.name}>{album.name}</div>
                 <div className="text-body-large text-on-surface-variant truncate" title={album.artist}>{album.artist}</div>
             </div>
-        </motion.div>
+        </div>
     );
 }
 
-function AlbumDetailView({ album, onBack, onPlay }: { album: Album, onBack: () => void, onPlay: () => void }) {
+// Helper Type for Display Items
+type DisplayItem =
+    | { type: 'header', disc: number }
+    | { type: 'track', track: TrackDisplay, index: number, originalIndex: number };
+
+function AlbumDetailView({ album, onBack }: { album: Album, onBack: () => void }) {
     const { playQueue } = usePlayerStore();
     const coverUrl = useCoverArt(album.cover);
 
-    const containerVariants = {
-        hidden: { opacity: 0 },
-        visible: {
-            opacity: 1,
-            transition: {
-                staggerChildren: 0.1,
-                delayChildren: 0.2
-            }
-        }
-    };
+    // Prepare sorted tracks and inject headers
+    const displayItems = useMemo<DisplayItem[]>(() => {
+        // Sort tracks by disc, then track
+        const sorted = [...album.tracks].sort((a, b) => {
+            const discA = a.disc_number || 1;
+            const discB = b.disc_number || 1;
+            if (discA !== discB) return discA - discB;
 
-    const itemVariants = {
-        hidden: { opacity: 0, y: 20 },
-        visible: {
-            opacity: 1,
-            y: 0,
-            transition: { duration: 0.5, ease: [0.2, 0, 0, 1] as any }
+            const trackA = a.track_number || 0;
+            const trackB = b.track_number || 0;
+            return trackA - trackB;
+        });
+
+        // Identify multi-disc
+        const discs = new Set(sorted.map(t => t.disc_number || 1));
+        const isMultiDisc = discs.size > 1;
+
+        if (!isMultiDisc) {
+            return sorted.map((track, i) => ({
+                type: 'track',
+                track,
+                index: i + 1,
+                originalIndex: album.tracks.indexOf(track) // We need index in original album.tracks for playQueue? 
+                // Wait, playQueue takes array of tracks. 
+                // Ideally we should play the sorted list.
+            }));
         }
-    };
+
+        const items: DisplayItem[] = [];
+        let currentDisc = -1;
+
+        sorted.forEach((track, i) => {
+            const disc = track.disc_number || 1;
+            if (disc !== currentDisc) {
+                items.push({ type: 'header', disc });
+                currentDisc = disc;
+            }
+            items.push({
+                type: 'track',
+                track,
+                index: track.track_number || (i + 1), // Use track number if available, else somewhat fallback
+                originalIndex: -1 // see below
+            });
+        });
+
+        return items;
+    }, [album.tracks]);
+
+    // When playing sorted tracks, we should pass the sorted list to the queue
+    const sortedTracks = useMemo(() => {
+        return [...album.tracks].sort((a, b) => {
+            const discA = a.disc_number || 1;
+            const discB = b.disc_number || 1;
+            if (discA !== discB) return discA - discB;
+            return (a.track_number || 0) - (b.track_number || 0);
+        });
+    }, [album.tracks]);
+
 
     return (
-        <motion.div
-            className="flex flex-col h-full bg-surface"
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-        >
+        <div className="flex flex-col h-full bg-surface">
             {/* Header */}
             <div className="p-8 pb-10 flex gap-10 items-end bg-surface-container-low shrink-0 rounded-b-[3rem] shadow-elevation-1 z-10">
-                <motion.div
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ duration: 0.6, ease: [0.2, 0, 0, 1] as any }}
-                    className="w-64 h-64 shrink-0 shadow-elevation-3"
-                >
+                <div className="w-64 h-64 shrink-0 shadow-elevation-3">
                     <M3RoundedSquareImage
                         src={coverUrl}
                         fallback={<IconMusicNote size={80} />}
                     />
-                </motion.div>
+                </div>
 
                 <div className="flex flex-col gap-4 mb-2 min-w-0 flex-1">
-                    <motion.div variants={itemVariants}>
+                    <div>
                         <div className="text-label-large font-medium text-on-surface-variant uppercase tracking-wider mb-2">Album</div>
                         <h1 className="text-display-medium font-bold text-on-surface tracking-tight truncate leading-tight">{album.name}</h1>
-                    </motion.div>
+                    </div>
 
-                    <motion.div variants={itemVariants} className="flex items-center gap-3 text-headline-small">
+                    <div className="flex items-center gap-3 text-headline-small">
                         <span className="font-semibold text-primary">{album.artist}</span>
                         <span className="text-on-surface-variant">• {album.tracks.length} tracks</span>
-                    </motion.div>
+                    </div>
 
-                    <motion.div variants={itemVariants} className="flex gap-4 mt-4">
+                    <div className="flex gap-4 mt-4">
                         <button
-                            onClick={onPlay}
+                            onClick={() => playQueue(sortedTracks, 0)}
                             className="h-12 px-8 bg-primary text-on-primary rounded-full font-medium hover:bg-primary/90 flex items-center gap-2 shadow-elevation-2 transition-transform active:scale-95 text-title-medium"
                         >
                             <IconPlay size={24} fill="currentColor" /> Play
@@ -254,35 +286,52 @@ function AlbumDetailView({ album, onBack, onPlay }: { album: Album, onBack: () =
                         >
                             Back
                         </button>
-                    </motion.div>
+                    </div>
                 </div>
             </div>
 
             {/* Tracklist */}
-            <motion.div variants={itemVariants} className="flex-1 p-6">
+            <div className="flex-1 p-6">
                 <Virtuoso
                     style={{ height: '100%' }}
-                    data={album.tracks}
+                    data={displayItems}
                     overscan={100}
-                    itemContent={(i, track) => (
-                        <div
-                            key={track.id}
-                            onClick={() => playQueue(album.tracks, i)}
-                            className="group flex items-center gap-6 p-4 rounded-xl hover:bg-surface-container-highest cursor-pointer text-on-surface-variant hover:text-on-surface transition-colors"
-                        >
-                            <span className="w-8 text-center text-title-medium font-medium opacity-60 group-hover:opacity-100">{i + 1}</span>
-                            <span className="flex-1 font-medium text-body-large truncate">{track.title}</span>
-                            <span className="text-label-large font-medium opacity-60 tabular-nums">
-                                {Math.floor(track.duration_secs / 60)}:
-                                {Math.floor(track.duration_secs % 60).toString().padStart(2, '0')}
-                            </span>
-                        </div>
-                    )}
+                    itemContent={(i, item) => {
+                        if (item.type === 'header') {
+                            return (
+                                <div className="flex items-center gap-4 py-4 mt-2">
+                                    <IconAlbum size={20} className="text-primary" />
+                                    <span className="text-title-medium font-bold text-primary">Disc {item.disc}</span>
+                                    <div className="h-px flex-1 bg-surface-container-highest"></div>
+                                </div>
+                            );
+                        }
+
+                        // Track Item
+                        return (
+                            <div
+                                key={item.track.id}
+                                onClick={() => {
+                                    // Find correct index in sortedTracks
+                                    const index = sortedTracks.indexOf(item.track);
+                                    playQueue(sortedTracks, index);
+                                }}
+                                className="group flex items-center gap-6 p-4 rounded-xl hover:bg-surface-container-highest cursor-pointer text-on-surface-variant hover:text-on-surface transition-colors"
+                            >
+                                <span className="w-8 text-center text-title-medium font-medium opacity-60 group-hover:opacity-100">{item.track.track_number || (i + 1)}</span>
+                                <span className="flex-1 font-medium text-body-large truncate">{item.track.title}</span>
+                                <span className="text-label-large font-medium opacity-60 tabular-nums">
+                                    {Math.floor(item.track.duration_secs / 60)}:
+                                    {Math.floor(item.track.duration_secs % 60).toString().padStart(2, '0')}
+                                </span>
+                            </div>
+                        );
+                    }}
                     components={{
                         Footer: () => <div className="h-32"></div>
                     }}
                 />
-            </motion.div>
-        </motion.div>
+            </div>
+        </div>
     );
 }

@@ -9,131 +9,64 @@
         /* Font Family */
         --font-outfit: 'Outfit', sans-serif;
 
-        /* M3 Dynamic Colors (Defaults - overwritten by ThemeManager) */
-        --md-sys-color-surface: #0a0a0f;
-        --md-sys-color-on-surface: #f1f1f1;
-        --md-sys-color-surface-container-low: #141419;
-        --md-sys-color-surface-container: #1e1e24;
-        --md-sys-color-surface-container-high: #282830;
+        /* M3 Dynamic Colors (Solid Expressive) */
+        /* Surface - Deep Solid Dark */
+        --md-sys-color-surface: #0f0f13;
+        --md-sys-color-on-surface: #f4f4f6;
 
-        --md-sys-color-primary: #6366f1;
+        /* Surface Containers */
+        --md-sys-color-surface-container-low: #18181e;
+        --md-sys-color-surface-container: #1f1f26;
+        --md-sys-color-surface-container-high: #2b2b35;
+        --md-sys-color-surface-container-highest: #353541;
+
+        /* Primary - Solid Vibrant Indigo/Purple */
+        --md-sys-color-primary: #7c4dff;
+        /* Deep Purple A200 approx */
         --md-sys-color-on-primary: #ffffff;
-        --md-sys-color-primary-container: #3f4090;
-        --md-sys-color-on-primary-container: #e0e0ff;
+        --md-sys-color-primary-container: #5f2eea;
+        --md-sys-color-on-primary-container: #ffffff;
 
-        --md-sys-color-secondary: #8b5cf6;
-        --md-sys-color-on-secondary: #ffffff;
-        --md-sys-color-secondary-container: #5b3fa8;
-        --md-sys-color-on-secondary-container: #eddcff;
+        /* Secondary - Solid Accent */
+        --md-sys-color-secondary: #00e5ff;
+        /* Cyan Accent */
+        --md-sys-color-on-secondary: #000000;
+        --md-sys-color-secondary-container: #00b0c4;
+        --md-sys-color-on-secondary-container: #000000;
 
-        --md-sys-color-tertiary: #f472b6;
+        /* Tertiary - Solid Pink/Rose */
+        --md-sys-color-tertiary: #ff4081;
+        /* Pink Accent */
         --md-sys-color-on-tertiary: #ffffff;
-        --md-sys-color-tertiary-container: #9e2a6a;
-        --md-sys-color-on-tertiary-container: #ffdfee;
+        --md-sys-color-tertiary-container: #c51162;
+        --md-sys-color-on-tertiary-container: #ffffff;
 
-        --md-sys-color-outline: #79747e;
-        --md-sys-color-outline-variant: #49454f;
+        /* Error */
+        --md-sys-color-error: #ff5252;
+        --md-sys-color-on-error: #ffffff;
+
+        /* Otuline */
+        --md-sys-color-outline: #938f99;
+        --md-sys-color-outline-variant: #484649;
     }
 
     body {
         background-color: #0a0a0f;
-        /* Fallback opaque */
         @apply bg-surface text-on-surface font-outfit antialiased overflow-hidden;
-        /* Enforce 2D */
-        transform-style: flat !important;
+        transition: background-color 0.5s ease-in-out, color 0.5s ease-in-out;
     }
 
-    /* Reset any possible 3D transforms on everything */
     * {
-        transform-style: flat !important;
         scrollbar-width: thin;
         scrollbar-color: var(--md-sys-color-outline-variant) transparent;
-    }
-
-    /* Custom Webkit Scrollbar */
-    ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-    }
-
-    ::-webkit-scrollbar-track {
-        background: transparent;
-    }
-
-    ::-webkit-scrollbar-thumb {
-        background-color: var(--md-sys-color-outline-variant);
-        border-radius: 9999px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-        background-color: var(--md-sys-color-outline);
+        /* Smoothly animate color changes */
+        transition: border-color 0.3s ease, background-color 0.3s ease, color 0.3s ease;
     }
 }
 
 @layer utilities {
     .animate-spin-slow {
         animation: spin 8s linear infinite;
-    }
-
-    .animate-wave-down {
-        animation: wave-down 2s ease-in-out infinite;
-    }
-
-    @keyframes wave-down {
-        0% {
-            transform: translateY(-50%);
-        }
-
-        100% {
-            transform: translateY(0%);
-        }
-    }
-
-    /* Wave Masks */
-    /* Wave width is 12px. We use 14px to be safe. */
-
-    /* MASK FOR RIGHT EDGE: Visible on Left, Wave on Right */
-    /* Pattern: Rect that covers 0 to 100%, but right edge is wave. */
-    /* SVG: <path d="M 0 0 H 6 Q 1 10 6 20 T 6 40 H 0 Z" fill="black"/> (Hidden on left?? No mask logic: White/Black opaque is Visible, Transparent is Hidden) */
-    /* We want the CONTENT to be visible. So the mask should be OPAQUE where content is. */
-    /* Left side is content. So we need a shape that fills the left side. */
-    /* Path: Start Top Left (0,0) -> Right Wave Top (6,0) -> Wave -> Right Wave Bottom (6,40) -> Bottom Left (0,40) -> Close. */
-    /* Wave: M 6 0 Q 1 10 6 20 T 6 40. This curves LEFT (min x~1.5). */
-    /* So if we fill LEFT of this curve, the edge will be convex/concave matching the separator. */
-
-    .mask-wave-right {
-        mask-image: url("data:image/svg+xml,%3Csvg width='12' height='40' viewBox='0 0 12 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M 0 0 L 6 0 Q 1 10 6 20 T 6 40 L 0 40 Z' fill='black'/%3E"), linear-gradient(to right, black calc(100% - 12px), transparent calc(100% - 12px));
-        mask-position: right top, left top;
-        mask-repeat: repeat-y, no-repeat;
-        mask-size: 12px 40px, 100% 100%;
-        mask-composite: add;
-        /* Combine the wave edge with the solid block */
-    }
-
-    /* MASK FOR LEFT EDGE: Visible on Right, Wave on Left */
-    /* We need the shape that fills the RIGHT side of the wave. */
-    /* Path: Start Top Right (12,0) -> Wave Top (6,0) -> Wave -> Wave Bottom (6,40) -> Bottom Right (12,40) -> Close. */
-    .mask-wave-left {
-        mask-image: url("data:image/svg+xml,%3Csvg width='12' height='40' viewBox='0 0 12 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M 12 0 L 6 0 Q 1 10 6 20 T 6 40 L 12 40 Z' fill='black'/%3E"), linear-gradient(to left, black calc(100% - 12px), transparent calc(100% - 12px));
-        mask-position: left top, right top;
-        mask-repeat: repeat-y, no-repeat;
-        mask-size: 12px 40px, 100% 100%;
-        mask-composite: add;
-    }
-
-    /* Combined for middle panel (both edges) */
-    .mask-wave-both {
-        mask-image:
-            url("data:image/svg+xml,%3Csvg width='12' height='40' viewBox='0 0 12 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M 12 0 L 6 0 Q 1 10 6 20 T 6 40 L 12 40 Z' fill='black'/%3E"),
-            /* Left Edge */
-            url("data:image/svg+xml,%3Csvg width='12' height='40' viewBox='0 0 12 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M 0 0 L 6 0 Q 1 10 6 20 T 6 40 L 0 40 Z' fill='black'/%3E"),
-            /* Right Edge */
-            linear-gradient(to right, transparent 12px, black 12px, black calc(100% - 12px), transparent calc(100% - 12px));
-        /* Center Block */
-        mask-position: left top, right top, center top;
-        mask-repeat: repeat-y, repeat-y, no-repeat;
-        mask-size: 12px 40px, 12px 40px, 100% 100%;
-        mask-composite: add;
     }
 
     /* Hide Scrollbar Utility */

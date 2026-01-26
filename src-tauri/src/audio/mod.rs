@@ -15,6 +15,8 @@ pub struct TrackInfo {
     pub album: String,
     pub duration_secs: f64,
     pub cover_image: Option<String>,
+    pub disc_number: Option<u32>,
+    pub track_number: Option<u32>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

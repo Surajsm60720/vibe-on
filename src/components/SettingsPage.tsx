@@ -9,7 +9,8 @@ export function SettingsPage() {
     const {
         albumArtStyle, setAlbumArtStyle,
         expandedArtMode, setExpandedArtMode,
-        autoplay, setAutoplay
+        autoplay, setAutoplay,
+        downloadPath, setDownloadPath
     } = useSettingsStore();
     const { colors } = useThemeStore();
     const { primary } = colors;
@@ -158,16 +159,29 @@ export function SettingsPage() {
                                 <h3 className="text-base font-medium text-white">Music Folders</h3>
                                 <p className="text-sm text-white/50">Manage the folders where Vibe searches for music.</p>
                             </div>
-                            <button
-                                onClick={handleOpenFolder}
-                                className="flex items-center gap-2 px-4 py-2 rounded-full bg-primary/20 hover:bg-primary/30 text-primary transition-colors text-sm font-medium"
-                                style={{ color: primary, backgroundColor: `${primary}33` }}
-                            >
-                                <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke="currentColor" strokeWidth={2}>
-                                    <path d="M12 5v14m-7-7h14" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                                Add Folder
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => usePlayerStore.getState().refreshLibrary()}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors text-sm font-medium"
+                                >
+                                    <svg viewBox="0 0 24 24" fill="none" className={`w-4 h-4 ${usePlayerStore((s) => s.isLoading) ? 'animate-spin' : ''}`} stroke="currentColor" strokeWidth={2}>
+                                        <path d="M23 4v6h-6" />
+                                        <path d="M1 20v-6h6" />
+                                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                                    </svg>
+                                    Refresh
+                                </button>
+                                <button
+                                    onClick={handleOpenFolder}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-full bg-primary/20 hover:bg-primary/30 text-primary transition-colors text-sm font-medium"
+                                    style={{ color: primary, backgroundColor: `${primary}33` }}
+                                >
+                                    <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke="currentColor" strokeWidth={2}>
+                                        <path d="M12 5v14m-7-7h14" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                    Add Folder
+                                </button>
+                            </div>
                         </div>
 
                         <div className="flex flex-col gap-2">
@@ -217,6 +231,54 @@ export function SettingsPage() {
                                 accentColor={primary}
                             />
                         </div>
+                    </div>
+                </section>
+
+                {/* Section: Downloads */}
+                <section>
+                    <h2 className="text-xl font-semibold text-white mb-4">Downloads</h2>
+                    <div className="bg-white/5 rounded-xl p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 className="text-base font-medium text-white">Default Download Path</h3>
+                                <p className="text-sm text-white/50">Where new torrents will be downloaded by default.</p>
+                            </div>
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        const selected = await open({
+                                            directory: true,
+                                            multiple: false,
+                                            title: 'Select Download Folder',
+                                        });
+                                        if (selected && typeof selected === 'string') {
+                                            // Ensure path ends with slash for consistency
+                                            const path = selected.endsWith('/') || selected.endsWith('\\') ? selected : selected + '/';
+                                            setDownloadPath(path);
+                                        }
+                                    } catch (e) {
+                                        console.error('Failed to select folder:', e);
+                                    }
+                                }}
+                                className="px-4 py-2 rounded-lg bg-surface-container-highest hover:bg-surface-container-high text-on-surface transition-colors text-sm font-medium"
+                            >
+                                Change
+                            </button>
+                        </div>
+                        <div className="flex items-center gap-3 p-3 rounded-lg bg-black/20 font-mono text-sm text-white/80 break-all">
+                            <svg className="w-5 h-5 text-white/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            {downloadPath || 'Default (Music Folder)'}
+                        </div>
+                        {downloadPath && (
+                            <button
+                                onClick={() => setDownloadPath(null)}
+                                className="mt-2 text-xs text-primary hover:underline ml-1"
+                            >
+                                Reset to Default
+                            </button>
+                        )}
                     </div>
                 </section>
 

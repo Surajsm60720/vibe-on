@@ -3,7 +3,7 @@ import { PlayerBar } from './components/PlayerBar';
 // import './App.css'; // Removed styling
 
 import { useMediaSession } from './hooks/useMediaSession';
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePlayerStore } from './store/playerStore';
 import { useSettingsStore } from './store/settingsStore';
 
@@ -100,24 +100,36 @@ function App() {
       if (lastTrackPathRef.current === status.track.path) {
         return;
       }
+
+      // Mark as triggered
       lastTrackPathRef.current = status.track.path;
 
-      const { repeatMode, playFile, getCurrentTrackIndex, nextTrack } = store;
-
-      // Small delay to let state settle
+      // Small delay to allow state to settle?
       setTimeout(() => {
+        const { repeatMode, nextTrack, getCurrentTrackIndex } = usePlayerStore.getState();
+
+        console.log('[Autoplay] Track ended. Repeat:', repeatMode);
+
         if (repeatMode === 'one') {
-          // Repeat One: Replay the same track from the beginning
-          console.log('[Autoplay] Repeat One - replaying:', status.track?.path);
-          if (status.track) {
-            playFile(status.track.path);
-          }
+          // handled by PlayerBar effect logic usually, but here for safety
+          usePlayerStore.getState().playFile(status.track!.path);
         } else if (repeatMode === 'all') {
-          // Repeat All: Go to next track, or loop to first if at end
+          nextTrack();
+        } else if (repeatMode === 'off') {
+          // If 'off', we still want to play next track in queue/playlist, 
+          // but stop if we are at the end of the queue.
+          // However, standard player behavior usually plays next in queue even if repeat is off, 
+          // unless it's the very last track.
           const currentIndex = getCurrentTrackIndex();
-          if (currentIndex >= store.queue.length - 1 && store.queue.length > 0) {
-            console.log('[Autoplay] Repeat All - looping to first track');
-            playFile(store.queue[0].path);
+          if (currentIndex >= store.queue.length - 1) {
+            // End of queue
+            console.log('[Autoplay] End of queue reached.');
+            if (autoplay) {
+              console.log('[Autoplay] Autoplay enabled, picking random album...');
+              store.playRandomAlbum();
+            } else {
+              store.pause(); // Just stop
+            }
           } else {
             nextTrack();
           }
@@ -126,7 +138,7 @@ function App() {
           const currentIndex = getCurrentTrackIndex();
           if (currentIndex >= store.queue.length - 1) {
             // Queue ended! Play a random album as requested
-            console.log('[Autoplay] Queue ended. Picking a random album...');
+            console.log('[Autoplay] Queue ended! Picking a random album...');
             store.playRandomAlbum();
           } else {
             nextTrack();

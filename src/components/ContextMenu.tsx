@@ -50,7 +50,7 @@ export function ContextMenu({ x, y, track, onClose }: ContextMenuProps) {
                 exit={{ opacity: 0, scale: 0.9, y: -10 }}
                 transition={{ duration: 0.1 }}
                 style={{ top: y, left: x }}
-                className="fixed z-[9999] min-w-[200px] bg-surface-container-high border border-outline-variant/20 rounded-xl shadow-elevation-3 py-2 flex flex-col overflow-hidden backdrop-blur-md"
+                className="fixed z-[9999] min-w-[200px] bg-surface-container-high border border-outline-variant/20 rounded-xl shadow-elevation-3 py-2 flex flex-col overflow-hidden"
             >
                 <div className="px-4 py-2 border-b border-outline-variant/10 mb-1">
                     <div className="text-label-medium font-bold text-on-surface truncate max-w-[180px]">{track.title}</div>

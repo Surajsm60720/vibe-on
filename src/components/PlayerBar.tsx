@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { usePlayerStore } from '../store/playerStore';
 import { useLyricsStore } from '../store/lyricsStore';
-import { useMoodStore } from '../store/moodStore';
 import { useCoverArt } from '../hooks/useCoverArt';
 import { useSettingsStore } from '../store/settingsStore';
 import { SquigglySlider } from './SquigglySlider';
@@ -207,7 +206,7 @@ export function PlayerBar() {
             </AnimatePresence>
 
             {/* Container for Pill and Side Buttons */}
-            <div className="flex items-center justify-center gap-4 w-full">
+            <div className="flex items-center justify-center gap-6 w-full px-4">
                 {/* Previous Button */}
                 <AnimatePresence mode="popLayout">
                     {!isHovered && (
@@ -228,7 +227,7 @@ export function PlayerBar() {
                     initial={false}
                     animate={{
                         width: isHovered ? '90%' : '20rem',
-                        height: isHovered ? '6rem' : '4rem',
+                        height: isHovered ? '6rem' : '4.5rem',
                         borderRadius: '9999px',
                         maxWidth: isHovered ? '56rem' : '20rem',
                         backgroundColor: isHovered
@@ -250,7 +249,7 @@ export function PlayerBar() {
                     flex items-center
                     backdrop-blur-xl
                     border
-                    ${isHovered ? 'px-6 py-3 gap-6' : 'px-4 py-2 gap-4'}
+                    ${isHovered ? 'px-8 py-4 gap-8' : 'px-5 py-3 gap-5'}
                 `}
                 >
                     {/* Background Art Overlay (Expanded Mode - Smoother Bleed) */}

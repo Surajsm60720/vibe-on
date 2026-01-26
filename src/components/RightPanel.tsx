@@ -3,8 +3,9 @@ import { useLyricsStore } from '../store/lyricsStore';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { usePlayerStore } from '../store/playerStore';
+import { useNavigationStore } from '../store/navigationStore';
 import { useCoverArt } from '../hooks/useCoverArt';
-import { IconMusicNote, IconPlay, IconQueue, IconLyrics, IconFullscreen } from './Icons';
+import { IconMusicNote, IconPlay, IconQueue, IconAlbum, IconLyrics, IconFullscreen } from './Icons';
 import { MarqueeText } from './MarqueeText';
 import { SquigglySlider } from './SquigglySlider';
 
@@ -12,6 +13,7 @@ export function RightPanel() {
     const { status, queue, playFile, toggleImmersiveMode } = usePlayerStore();
     const { lines, plainLyrics, isInstrumental, isLoading, fetchLyrics, error } = useLyricsStore();
     const { track } = status;
+    const { navigateToAlbum } = useNavigationStore();
 
     // Clover Shape from TitleBar
     const CloverIcon = ({ children, active, color }: { children: React.ReactNode, active: boolean, color: string }) => (
@@ -81,6 +83,12 @@ export function RightPanel() {
         }
     }, [shouldShowLyricsIdeally, error]);
 
+    const handleArtClick = () => {
+        if (track?.album && track?.artist) {
+            navigateToAlbum(track.album, track.artist);
+        }
+    };
+
     return (
         <aside className="h-full flex flex-col p-6 gap-6 overflow-hidden">
             {/* Now Playing Header */}
@@ -95,10 +103,14 @@ export function RightPanel() {
                 </button>
             </div>
 
-            {/* Main Art & Info */}
-            <div className="flex flex-col items-center gap-4 shrink-0 transition-all duration-300">
-                {/* Large Art */}
-                <div className="w-52 h-52 rounded-[1.5rem] bg-surface-container-high shadow-elevation-2 relative group overflow-hidden shrink-0">
+            {/* Main Art & Info - UPDATED: Larger Art, No Album Text, Clickable */}
+            <div className="flex flex-col items-center gap-6 shrink-0 transition-all duration-300">
+                {/* Large Art (Increased size to w-72 h-72 approx / allow scaling) */}
+                <div
+                    onClick={handleArtClick}
+                    className="w-72 h-72 rounded-[2rem] bg-surface-container-high shadow-elevation-2 relative group overflow-hidden shrink-0 cursor-pointer hover:scale-[1.02] active:scale-95 transition-transform duration-200"
+                    title={track?.album ? `Go to album: ${track.album}` : "Album Art"}
+                >
                     {coverUrl ? (
                         <img
                             src={coverUrl}
@@ -107,22 +119,27 @@ export function RightPanel() {
                         />
                     ) : (
                         <div className="w-full h-full flex items-center justify-center text-on-surface-variant/50">
-                            <IconMusicNote size={48} />
+                            <IconMusicNote size={64} />
+                        </div>
+                    )}
+
+                    {/* Hover Hint */}
+                    {track?.album && (
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <IconAlbum size={32} className="text-white drop-shadow-lg" />
                         </div>
                     )}
                 </div>
 
                 {/* Info */}
                 <div className="flex flex-col items-center text-center gap-1 w-full px-2">
-                    <div className="w-full text-headline-small font-bold text-on-surface truncate">
+                    <div className="w-full text-headline-medium font-bold text-on-surface truncate">
                         <MarqueeText text={track?.title || "Not Playing"} />
                     </div>
-                    <div className="text-title-medium text-on-surface-variant truncate w-full">
+                    <div className="text-title-large text-on-surface-variant truncate w-full font-medium">
                         {track?.artist || "Pick a song"}
                     </div>
-                    <p className="text-label-medium text-on-surface-variant/60 mt-1 truncate max-w-full">
-                        {track?.album}
-                    </p>
+                    {/* Album text removed as requested */}
                 </div>
             </div>
 
