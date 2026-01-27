@@ -1,114 +1,106 @@
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useState } from 'react';
 import { useMoodStore } from '../../store/moodStore';
-import { AnalysisProgress } from './AnalysisProgress';
-import type { TrackDisplay } from '../../types';
+import { TrackInfo } from '../../types';
 
 interface AnalyzeLibrarySectionProps {
-    library: TrackDisplay[];
+    library: TrackInfo[];
 }
 
 export function AnalyzeLibrarySection({ library }: AnalyzeLibrarySectionProps) {
-    const { startLibraryAnalysis, isAnalyzing, clearAnalysisData } = useMoodStore();
-    const [showClearConfirm, setShowClearConfirm] = useState(false);
+    const {
+        analysisProgress,
+        analysisStats,
+        isAnalyzing,
+        analyzeLibrary,
+        cancelAnalysis,
+        getAnalysisStats
+    } = useMoodStore();
 
-    const handleAnalyzeLibrary = async () => {
-        if (library.length === 0) return;
-        const trackPaths = library.map(t => t.path);
-        await startLibraryAnalysis(trackPaths);
-    };
+    // Refresh stats on mount
+    useEffect(() => {
+        getAnalysisStats();
+    }, [getAnalysisStats]);
 
-    const handleClearData = async () => {
-        await clearAnalysisData();
-        setShowClearConfirm(false);
+    // Calculate percentage
+    const successCount = analysisStats?.success || 0;
+    const errorCount = analysisStats?.error || 0;
+    const totalAnalyzed = successCount + errorCount;
+    const totalTracks = library.length;
+
+    const percentage = totalTracks > 0
+        ? Math.round((totalAnalyzed / totalTracks) * 100)
+        : 0;
+
+    const handleAnalyze = () => {
+        const paths = library.map(t => t.path);
+        analyzeLibrary(paths);
     };
 
     return (
-        <div className="mb-8">
-            {/* Analysis Progress Widget */}
-            {isAnalyzing && (
-                <>
-                    <AnalysisProgress />
-                    <div className="text-center text-body-medium text-on-surface-variant mt-4">
-                        Analyzing library... This may take a few minutes.
-                    </div>
-                </>
-            )}
-
-            {/* Analyze Button */}
-            {!isAnalyzing && (
-                <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-primary-container text-on-primary-container rounded-2xl p-4 mb-6"
-                >
-                    <div className="flex items-center justify-between gap-4">
-                        <div className="flex-1">
-                            <h3 className="font-semibold mb-1">Analyze Your Library</h3>
-                            <p className="text-body-small text-on-primary-container/80">
-                                Extract audio features from {library.length} tracks to enable mood-based discovery
-                            </p>
-                        </div>
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={handleAnalyzeLibrary}
-                            className="px-6 py-2 rounded-full bg-primary text-on-primary font-semibold whitespace-nowrap text-body-medium"
-                        >
-                            Analyze
-                        </motion.button>
-                    </div>
-                </motion.div>
-            )}
-
-            {/* Clear Data Button */}
-            {!isAnalyzing && (
-                <motion.button
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => setShowClearConfirm(true)}
-                    className="text-label-small text-error hover:text-error/80 transition-colors underline"
-                >
-                    Clear Analysis Data
-                </motion.button>
-            )}
-
-            {/* Clear Confirmation Modal */}
-            {showClearConfirm && (
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-                    onClick={() => setShowClearConfirm(false)}
-                >
-                    <motion.div
-                        initial={{ scale: 0.9 }}
-                        animate={{ scale: 1 }}
-                        className="bg-surface-container rounded-2xl p-6 max-w-sm mx-4"
-                        onClick={(e) => e.stopPropagation()}
+        <div className="bg-surface-container rounded-2xl p-6 mb-8">
+            <div className="flex items-center justify-between mb-4">
+                <div>
+                    <h2 className="text-title-medium font-semibold text-on-surface">Library Analysis</h2>
+                    <p className="text-body-medium text-on-surface-variant">
+                        Analyze tracks to enable mood features
+                    </p>
+                </div>
+                {isAnalyzing ? (
+                    <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={cancelAnalysis}
+                        className="px-4 py-2 rounded-full bg-error-container text-on-error-container font-medium text-label-large"
                     >
-                        <h3 className="text-headline-small font-bold text-on-surface mb-2">Clear Analysis Data?</h3>
-                        <p className="text-body-medium text-on-surface-variant mb-6">
-                            This will delete all audio feature analysis. You can re-analyze anytime.
-                        </p>
-                        <div className="flex gap-3 justify-end">
-                            <button
-                                onClick={() => setShowClearConfirm(false)}
-                                className="px-4 py-2 rounded-full text-body-medium font-semibold text-on-surface hover:bg-surface-container-high"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleClearData}
-                                className="px-4 py-2 rounded-full text-body-medium font-semibold text-on-error bg-error-container hover:bg-error/20"
-                            >
-                                Clear
-                            </button>
-                        </div>
-                    </motion.div>
-                </motion.div>
+                        Stop Analysis
+                    </motion.button>
+                ) : (
+                    <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleAnalyze}
+                        disabled={totalTracks === 0}
+                        className="px-6 py-2 rounded-full bg-primary text-on-primary font-semibold disabled:opacity-50"
+                    >
+                        {totalAnalyzed > 0 ? 'Update Analysis' : 'Analyze Library'}
+                    </motion.button>
+                )}
+            </div>
+
+            {/* Stats */}
+            <div className="flex gap-6 mb-4 text-body-small text-on-surface-variant">
+                <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-primary" />
+                    <span>Analyzed: {successCount}</span>
+                </div>
+                {errorCount > 0 && (
+                    <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-error" />
+                        <span>Errors: {errorCount}</span>
+                    </div>
+                )}
+                <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-surface-variant" />
+                    <span>Total: {totalTracks}</span>
+                </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="relative h-2 bg-surface-variant/30 rounded-full overflow-hidden">
+                <motion.div
+                    className="absolute top-0 left-0 h-full bg-primary"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${percentage}%` }}
+                    transition={{ duration: 0.5 }}
+                />
+            </div>
+
+            {isAnalyzing && analysisProgress && (
+                <div className="mt-2 flex justify-between text-body-small text-on-surface-variant">
+                    <span className="truncate pr-4">Processing: {analysisProgress.current_track.split(/[/\\]/).pop()}</span>
+                    <span>{percentage}%</span>
+                </div>
             )}
         </div>
     );

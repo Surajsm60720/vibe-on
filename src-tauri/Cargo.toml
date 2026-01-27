@@ -28,6 +28,16 @@ serde_json = "1"
 # Audio playback
 rodio = { version = "0.20", features = ["symphonia-all"] }
 
+# Audio decoding for mood analysis
+symphonia = { version = "0.5", features = ["default"] }
+
+# FFT and spectral analysis
+rustfft = "6.2"
+num-complex = "0.4"
+
+# Date/time utilities
+chrono = "0.4"
+
 # Metadata extraction
 lofty = "0.22"
 

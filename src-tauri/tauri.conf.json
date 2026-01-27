@@ -40,7 +40,8 @@
       "icons/back.ico",
       "icons/play.ico",
       "icons/pause.ico",
-      "icons/next.ico"
+      "icons/next.ico",
+      "sidecar/analyze_track.py"
     ]
   }
 }

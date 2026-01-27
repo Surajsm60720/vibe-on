@@ -11,6 +11,7 @@ mod youtube_searcher;
 // Mood-based playback feature (isolated module for clean removal)
 mod mood;
 
+use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -738,6 +739,12 @@ fn clear_all_data(state: State<AppState>, app_handle: AppHandle) -> Result<(), S
     get_or_init_db(&state, &app_handle)?;
     if let Some(db) = state.db.lock().unwrap().as_ref() {
         db.clear_all_data().map_err(|e| e.to_string())?;
+
+        // Also clear persisted torrent state (does not delete user downloads)
+        if let Some(manager) = state.torrent_manager.lock().unwrap().as_ref() {
+            let state_file = manager.download_dir.join(torrent::STATE_FILE);
+            let _ = fs::remove_file(&state_file);
+        }
         Ok(())
     } else {
         Err("Database not initialized".to_string())
@@ -873,12 +880,9 @@ async fn add_magnet_link(
 
     if let Some(manager) = manager {
         let download_path =
-           
             path.unwrap_or_else(|| manager.download_dir.to_string_lossy().to_string());
         manager
-            
             .add_torrent(Some(magnet), None, download_path, None)
-            
             .await
     } else {
         Err("Torrent backend not initialized".to_string())
@@ -1260,7 +1264,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(AppState::default())
-        .manage(mood::MoodState::default())
         .invoke_handler(tauri::generate_handler![
             play_file,
             pause,
@@ -1308,6 +1311,10 @@ pub fn run() {
             mood::get_similar_tracks,
             mood::get_analysis_stats,
             mood::clear_analysis_data,
+            #[cfg(debug_assertions)]
+            mood::debug_get_all_features,
+            #[cfg(debug_assertions)]
+            mood::debug_get_statistics,
             search_torrents,
         ])
         .setup(|_app| {
@@ -1341,6 +1348,10 @@ pub fn run() {
                     }
                 }
             }
+
+            // Initialize Mood features
+            mood::setup_mood_state(_app.handle());
+
             Ok(())
         })
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {

@@ -12,6 +12,7 @@ use crate::audio::{TrackInfo, UnreleasedTrack};
 pub struct DatabaseManager {
     conn: Arc<Mutex<Connection>>,
     covers_dir: PathBuf,
+    db_path: PathBuf,
 }
 
 impl DatabaseManager {
@@ -27,7 +28,7 @@ impl DatabaseManager {
             std::fs::create_dir_all(&covers_dir).unwrap();
         }
 
-        let conn = Connection::open(db_path)?;
+        let conn = Connection::open(&db_path)?;
 
         // Initialize schema
         init_db(&conn)?;
@@ -39,6 +40,7 @@ impl DatabaseManager {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             covers_dir,
+            db_path,
         })
     }
 
@@ -260,36 +262,43 @@ impl DatabaseManager {
     }
 
     pub fn clear_all_data(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-
         println!("[Database] Clearing all data...");
 
-        // Delete all tracks, albums, and unreleased tracks
-        conn.execute("DELETE FROM tracks", [])?;
-        conn.execute("DELETE FROM albums", [])?;
-        conn.execute("DELETE FROM unreleased_tracks", [])?;
-        println!("[Database] Tables cleared.");
-
-        // Optimize DB file
-        conn.execute("VACUUM", [])?;
-        println!("[Database] VACUUM complete.");
-
-        // Clear all cover images from disk
-        if self.covers_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(&self.covers_dir) {
-                let mut count = 0;
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file() {
-                        if std::fs::remove_file(path).is_ok() {
-                            count += 1;
-                        }
-                    }
-                }
-                println!("[Database] Removed {} cover files.", count);
-            }
+        // Delete all table data (schema kept intact until we recreate the file)
+        {
+            let conn = self.conn.lock().unwrap();
+            conn.execute("DELETE FROM tracks", [])?;
+            conn.execute("DELETE FROM albums", [])?;
+            conn.execute("DELETE FROM unreleased_tracks", [])?;
+            conn.execute("VACUUM", [])?;
+            println!("[Database] Tables cleared.");
         }
 
+        // Remove covers directory entirely and recreate
+        if self.covers_dir.exists() {
+            let _ = fs::remove_dir_all(&self.covers_dir);
+        }
+        let _ = fs::create_dir_all(&self.covers_dir);
+
+        // Release file locks by temporarily swapping the connection
+        {
+            let mut conn_guard = self.conn.lock().unwrap();
+            *conn_guard = Connection::open_in_memory()?;
+        }
+
+        // Remove the database file and recreate it fresh
+        if self.db_path.exists() {
+            let _ = fs::remove_file(&self.db_path);
+        }
+
+        let new_conn = Connection::open(&self.db_path)?;
+        init_db(&new_conn)?;
+        {
+            let mut conn_guard = self.conn.lock().unwrap();
+            *conn_guard = new_conn;
+        }
+
+        println!("[Database] Database file recreated at {:?}", self.db_path);
         Ok(())
     }
 }

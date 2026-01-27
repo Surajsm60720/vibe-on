@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Audio features extracted from a track via Essentia
+/// Audio features extracted from a track via Essentia or Rust analyzer
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct AudioFeatures {
     /// Valence: 0.0 (sad/negative) to 1.0 (happy/positive)
@@ -29,6 +29,8 @@ pub struct AudioFeatures {
     pub analyzed_at: Option<String>,
     /// Error message if analysis failed
     pub analysis_error: Option<String>,
+    /// Backend used for analysis: "essentia" (Python) or "rust"
+    pub analysis_backend: Option<String>,
 }
 
 /// Mood presets for radio/queue generation

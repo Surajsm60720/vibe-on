@@ -1,8 +1,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use rusqlite::Connection;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use super::analyzer::AudioAnalyzer;
 use super::db::MoodDatabase;
@@ -15,49 +14,29 @@ pub struct MoodState {
     pub analysis_cancel: Arc<Mutex<bool>>,
 }
 
-impl Default for MoodState {
-    fn default() -> Self {
-        // Get the directory containing the executable to find the sidecar
-        let exe_path = std::env::current_exe().ok();
-        let resources_dir = exe_path
-            .as_ref()
-            .and_then(|p| p.parent())
-            .map(|p| p.to_path_buf());
+/// Initialize mood feature managed state
+pub fn setup_mood_state(app: &AppHandle) {
+    let resources_dir = app
+        .path()
+        .resource_dir()
+        .unwrap_or_else(|_| Path::new("").to_path_buf());
 
-        let analyzer = resources_dir.as_ref().map(|dir| AudioAnalyzer::new(dir));
+    let db_path = app.path().app_data_dir().map(|d| d.join("library.db")).ok();
 
-        // Try to open connection to the app's database
-        // On macOS: ~/Library/Application Support/moe.memesta.vibe-on/library.db
-        let db = dirs::data_dir()
-            .map(|d| d.join("moe.memesta.vibe-on").join("library.db"))
-            .filter(|p| p.exists())
-            .and_then(|db_path| {
-                println!("[Mood] Opening database at: {:?}", db_path);
-                MoodDatabase::new_from_path(&db_path).ok()
-            });
+    let db = db_path.and_then(|path| {
+        println!("[Mood] Opening database at: {:?}", path);
+        MoodDatabase::new_from_path(&path).ok()
+    });
 
-        if db.is_none() {
-            println!("[Mood] Warning: Could not open database, mood features will be limited");
-        }
+    let analyzer = Some(AudioAnalyzer::new(&resources_dir));
 
-        Self {
-            db,
-            analyzer,
-            analysis_cancel: Arc::new(Mutex::new(false)),
-        }
-    }
-}
-
-/// Initialize mood feature with database connection
-pub fn init_mood_state(conn: Arc<Mutex<Connection>>, resources_dir: &Path) -> MoodState {
-    let db = MoodDatabase::new(conn).ok();
-    let analyzer = Some(AudioAnalyzer::new(resources_dir));
-
-    MoodState {
+    let state = MoodState {
         db,
         analyzer,
         analysis_cancel: Arc::new(Mutex::new(false)),
-    }
+    };
+
+    app.manage(state);
 }
 
 // ============================================================================
@@ -222,10 +201,7 @@ pub async fn get_similar_tracks(
     let analyzer = state.analyzer.as_ref().ok_or("Analyzer not initialized")?;
 
     // Try to get cached features
-    let source_features = match db
-        .get_features(&source_path)
-        .map_err(|e| e.to_string())?
-    {
+    let source_features = match db.get_features(&source_path).map_err(|e| e.to_string())? {
         Some(features) if features.analysis_error.is_none() => features,
         _ => {
             // Auto-analyze the source track if not cached or has error
@@ -262,4 +238,27 @@ pub fn get_analysis_stats(state: State<MoodState>) -> Result<(u32, u32), String>
 pub fn clear_analysis_data(state: State<MoodState>) -> Result<(), String> {
     let db = state.db.as_ref().ok_or("Database not initialized")?;
     db.clear_all().map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Debug Commands - For development only
+// ============================================================================
+
+/// Get all analyzed tracks with their features (debug)
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn debug_get_all_features(state: State<MoodState>) -> Result<Vec<super::debug::DebugFeatureRow>, String> {
+    use super::debug;
+    let db = state.db.as_ref().ok_or("Database not initialized")?;
+    // Access the connection from MoodDatabase
+    debug::get_all_features(db.get_connection())
+}
+
+/// Get analysis statistics (debug)
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn debug_get_statistics(state: State<MoodState>) -> Result<super::debug::AnalysisStats, String> {
+    use super::debug;
+    let db = state.db.as_ref().ok_or("Database not initialized")?;
+    debug::get_analysis_statistics(db.get_connection())
 }

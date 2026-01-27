@@ -11,6 +11,7 @@ interface MoodStore {
     // Analysis state
     isAnalyzing: boolean;
     analysisProgress: AnalysisProgress | null;
+    analysisStats: { success: number; error: number } | null;
 
     // Current track features
     currentTrackFeatures: AudioFeatures | null;
@@ -19,7 +20,8 @@ interface MoodStore {
     // Actions
     checkEssentiaStatus: () => Promise<void>;
     fetchTrackFeatures: (trackPath: string) => Promise<AudioFeatures | null>;
-    startLibraryAnalysis: (trackPaths: string[]) => Promise<void>;
+    analyzeLibrary: (trackPaths: string[]) => Promise<void>;
+    getAnalysisStats: () => Promise<void>;
     cancelAnalysis: () => Promise<void>;
     getMoodQueue: (preset: MoodPreset, limit?: number) => Promise<string[]>;
     getSimilarTracks: (sourcePath: string, limit?: number) => Promise<string[]>;
@@ -27,11 +29,12 @@ interface MoodStore {
     clearAnalysisData: () => Promise<void>;
 }
 
-export const useMoodStore = create<MoodStore>((set) => ({
+export const useMoodStore = create<MoodStore>((set, get) => ({
     essentiaStatus: null,
     isCheckingEssentia: false,
     isAnalyzing: false,
     analysisProgress: null,
+    analysisStats: null,
     currentTrackFeatures: null,
     isFetchingFeatures: false,
 
@@ -70,7 +73,7 @@ export const useMoodStore = create<MoodStore>((set) => ({
         }
     },
 
-    startLibraryAnalysis: async (trackPaths: string[]) => {
+    analyzeLibrary: async (trackPaths: string[]) => {
         set({ isAnalyzing: true, analysisProgress: null });
 
         // Listen for progress events
@@ -78,13 +81,31 @@ export const useMoodStore = create<MoodStore>((set) => ({
             set({ analysisProgress: event.payload });
         });
 
+        // Listen for completion
+        const unlistenComplete = await listen<{ success: number; error: number }>('mood:analysis_complete', (_event) => {
+            // Refresh stats when complete
+            get().getAnalysisStats();
+        });
+
         try {
             await invoke('analyze_library', { trackPaths });
+            // Refresh stats after completion
+            get().getAnalysisStats();
         } catch (error) {
             console.error('Library analysis failed:', error);
         } finally {
             unlisten();
+            unlistenComplete();
             set({ isAnalyzing: false });
+        }
+    },
+
+    getAnalysisStats: async () => {
+        try {
+            const [success, error] = await invoke<[number, number]>('get_analysis_stats');
+            set({ analysisStats: { success, error } });
+        } catch (error) {
+            console.error('Failed to get analysis stats:', error);
         }
     },
 

@@ -2,13 +2,15 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use super::types::{AudioFeatures, EssentiaStatus, ANALYSIS_VERSION};
+use super::rust_analyzer;
 
 /// Path to the Python sidecar script relative to app resources
 const SIDECAR_SCRIPT: &str = "sidecar/analyze_track.py";
 
-/// Analyzer that spawns Python sidecar for Essentia analysis
+/// Analyzer that tries Rust DSP first, falls back to Python Essentia
 pub struct AudioAnalyzer {
     sidecar_path: std::path::PathBuf,
+    prefer_python: bool, // Force Python if explicitly requested
 }
 
 impl AudioAnalyzer {
@@ -32,13 +34,47 @@ impl AudioAnalyzer {
             .find(|p| p.exists())
             .unwrap_or_else(|| resources_dir.join(SIDECAR_SCRIPT));
 
-        Self { sidecar_path }
+        Self {
+            sidecar_path,
+            prefer_python: false,
+        }
+    }
+
+    /// Create analyzer with Python preference
+    pub fn new_prefer_python(resources_dir: &Path) -> Self {
+        let mut analyzer = Self::new(resources_dir);
+        analyzer.prefer_python = true;
+        analyzer
+    }
+
+    /// Get the Python command to use
+    fn get_python_command() -> Command {
+        // Try to find python3.11 in PATH first
+        if Command::new("python3.11").arg("--version").output().is_ok() {
+            return Command::new("python3.11");
+        }
+
+        // Fallback to searching common Homebrew paths on macOS
+        let paths = [
+            "/opt/homebrew/bin/python3.11",
+            "/usr/local/bin/python3.11",
+            "/usr/bin/python3.11",
+        ];
+
+        for path in paths {
+            if Path::new(path).exists() {
+                return Command::new(path);
+            }
+        }
+
+        // Final fallback
+        Command::new("python3.11")
     }
 
     /// Check if Python and Essentia are available
     pub fn check_availability(&self) -> EssentiaStatus {
         // Check Python version
-        let python_result = Command::new("python3.11").args(["--version"]).output();
+        let python_result = Self::get_python_command().args(["--version"]).output();
 
         let python_version = match python_result {
             Ok(output) if output.status.success() => {
@@ -57,7 +93,7 @@ impl AudioAnalyzer {
         }
 
         // Check Essentia import
-        let essentia_result = Command::new("python3.11")
+        let essentia_result = Self::get_python_command()
             .args(["-c", "import essentia; print(essentia.__version__)"])
             .output();
 
@@ -109,15 +145,57 @@ impl AudioAnalyzer {
     }
 
     /// Analyze a single audio file
-    /// Returns AudioFeatures on success, or error string
+    /// 1. Try Rust analyzer first (always available, works offline)
+    /// 2. If prefer_python is set, try Python/Essentia
+    /// 3. Return whichever succeeds
     pub fn analyze_track(&self, audio_path: &str) -> Result<AudioFeatures, String> {
         // Verify file exists
         if !Path::new(audio_path).exists() {
             return Err(format!("Audio file not found: {}", audio_path));
         }
 
+        // Strategy 1: Try Rust analyzer first (always works, no dependencies)
+        println!("[Analyzer] Attempting Rust analysis for: {}", audio_path);
+        match rust_analyzer::analyze_audio_file_rust(audio_path) {
+            Ok(mut features) => {
+                println!("[Analyzer] Rust analysis succeeded");
+                features.analysis_backend = Some("rust".to_string());
+                return Ok(features);
+            }
+            Err(rust_err) => {
+                println!("[Analyzer] Rust analysis failed: {}", rust_err);
+                // If prefer_python is false, return Rust error
+                if !self.prefer_python {
+                    return Err(rust_err);
+                }
+                // Otherwise, continue to Python fallback
+            }
+        }
+
+        // Strategy 2: Try Python/Essentia as fallback
+        if self.prefer_python || self.check_availability().available {
+            println!("[Analyzer] Attempting Python/Essentia analysis for: {}", audio_path);
+            match self.analyze_track_python(audio_path) {
+                Ok(mut features) => {
+                    println!("[Analyzer] Python analysis succeeded");
+                    features.analysis_backend = Some("essentia".to_string());
+                    return Ok(features);
+                }
+                Err(python_err) => {
+                    println!("[Analyzer] Python analysis failed: {}", python_err);
+                    return Err(python_err);
+                }
+            }
+        }
+
+        // Both failed
+        Err("No analyzer available - Rust failed and Python/Essentia not available".to_string())
+    }
+
+    /// Analyze using Python sidecar (Essentia)
+    fn analyze_track_python(&self, audio_path: &str) -> Result<AudioFeatures, String> {
         // Spawn Python sidecar
-        let output = Command::new("python3.11")
+        let output = Self::get_python_command()
             .arg(&self.sidecar_path)
             .arg(audio_path)
             .stdout(Stdio::piped())

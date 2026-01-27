@@ -41,7 +41,7 @@ export function TorrentManager() {
         const init = async () => {
             try {
                 const baseDir = await downloadDir();
-                const path = `${baseDir}vibe-on-music`;
+                const path = `${baseDir}/vibe-on-music`;
                 await invoke('init_torrent_backend', { downloadDir: path });
                 fetchTorrents();
                 // Poll for updates

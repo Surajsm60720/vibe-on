@@ -13,7 +13,7 @@ pub mod search;
 // Constants
 // ============================================================================
 
-const STATE_FILE: &str = "vibe_torrents.json";
+pub const STATE_FILE: &str = "vibe_torrents.json";
 
 /// Audio file extensions we care about
 const AUDIO_EXTENSIONS: &[&str] = &[

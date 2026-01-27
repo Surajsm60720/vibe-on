@@ -29,13 +29,19 @@ impl MoodDatabase {
         Ok(Self { conn })
     }
 
+    /// Get access to the underlying database connection for debug utilities
+    #[cfg(debug_assertions)]
+    pub fn get_connection(&self) -> Arc<Mutex<Connection>> {
+        Arc::clone(&self.conn)
+    }
+
     /// Insert or update audio features for a track
     pub fn upsert_features(&self, track_path: &str, features: &AudioFeatures) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO audio_features (track_path, valence, energy, danceability, tempo, key, loudness, 
-             instrumentalness, acousticness, speechiness, liveness, analysis_version, analysis_error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             instrumentalness, acousticness, speechiness, liveness, analysis_version, analysis_error, analysis_backend)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
              ON CONFLICT(track_path) DO UPDATE SET
              valence = excluded.valence,
              energy = excluded.energy,
@@ -49,7 +55,8 @@ impl MoodDatabase {
              liveness = excluded.liveness,
              analysis_version = excluded.analysis_version,
              analyzed_at = CURRENT_TIMESTAMP,
-             analysis_error = excluded.analysis_error",
+             analysis_error = excluded.analysis_error,
+             analysis_backend = excluded.analysis_backend",
             params![
                 track_path,
                 features.valence,
@@ -64,6 +71,7 @@ impl MoodDatabase {
                 features.liveness,
                 features.analysis_version,
                 features.analysis_error,
+                &features.analysis_backend,
             ],
         )?;
         Ok(())
@@ -74,7 +82,7 @@ impl MoodDatabase {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT valence, energy, danceability, tempo, key, loudness, instrumentalness,
-             acousticness, speechiness, liveness, analysis_version, analyzed_at, analysis_error
+             acousticness, speechiness, liveness, analysis_version, analyzed_at, analysis_error, analysis_backend
              FROM audio_features WHERE track_path = ?1",
             params![track_path],
             |row| {
@@ -92,6 +100,7 @@ impl MoodDatabase {
                     analysis_version: row.get(10)?,
                     analyzed_at: row.get(11)?,
                     analysis_error: row.get(12)?,
+                    analysis_backend: row.get(13)?,
                 })
             },
         )
