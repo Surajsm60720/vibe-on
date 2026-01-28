@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use super::types::{AudioFeatures, EssentiaStatus, ANALYSIS_VERSION};
 use super::rust_analyzer;
+use super::types::{AudioFeatures, EssentiaStatus, ANALYSIS_VERSION};
 
 /// Path to the Python sidecar script relative to app resources
 const SIDECAR_SCRIPT: &str = "sidecar/analyze_track.py";
@@ -154,27 +154,13 @@ impl AudioAnalyzer {
             return Err(format!("Audio file not found: {}", audio_path));
         }
 
-        // Strategy 1: Try Rust analyzer first (always works, no dependencies)
-        println!("[Analyzer] Attempting Rust analysis for: {}", audio_path);
-        match rust_analyzer::analyze_audio_file_rust(audio_path) {
-            Ok(mut features) => {
-                println!("[Analyzer] Rust analysis succeeded");
-                features.analysis_backend = Some("rust".to_string());
-                return Ok(features);
-            }
-            Err(rust_err) => {
-                println!("[Analyzer] Rust analysis failed: {}", rust_err);
-                // If prefer_python is false, return Rust error
-                if !self.prefer_python {
-                    return Err(rust_err);
-                }
-                // Otherwise, continue to Python fallback
-            }
-        }
-
-        // Strategy 2: Try Python/Essentia as fallback
-        if self.prefer_python || self.check_availability().available {
-            println!("[Analyzer] Attempting Python/Essentia analysis for: {}", audio_path);
+        // Strategy 1: Try Python/Essentia first (High Accuracy)
+        let python_status = self.check_availability();
+        if python_status.available {
+            println!(
+                "[Analyzer] Attempting Python/Essentia analysis for: {}",
+                audio_path
+            );
             match self.analyze_track_python(audio_path) {
                 Ok(mut features) => {
                     println!("[Analyzer] Python analysis succeeded");
@@ -182,14 +168,36 @@ impl AudioAnalyzer {
                     return Ok(features);
                 }
                 Err(python_err) => {
-                    println!("[Analyzer] Python analysis failed: {}", python_err);
-                    return Err(python_err);
+                    println!(
+                        "[Analyzer] Python analysis failed: {}. Falling back to Rust.",
+                        python_err
+                    );
+                    // Fallthrough to Rust
                 }
             }
+        } else {
+            println!(
+                "[Analyzer] Python/Essentia not available ({:?}). Using Rust fallback.",
+                python_status.error
+            );
         }
 
-        // Both failed
-        Err("No analyzer available - Rust failed and Python/Essentia not available".to_string())
+        // Strategy 2: Rust Analyzer (Fallback)
+        println!(
+            "[Analyzer] Attempting Rust analysis (Fallback) for: {}",
+            audio_path
+        );
+        match rust_analyzer::analyze_audio_file_rust(audio_path) {
+            Ok(mut features) => {
+                println!("[Analyzer] Rust analysis succeeded");
+                features.analysis_backend = Some("rust".to_string());
+                Ok(features)
+            }
+            Err(rust_err) => {
+                println!("[Analyzer] Rust analysis failed: {}", rust_err);
+                Err(format!("All analyzers failed. Rust error: {}", rust_err))
+            }
+        }
     }
 
     /// Analyze using Python sidecar (Essentia)

@@ -1,3 +1,4 @@
+pub mod equalizer;
 pub mod media_controls;
 pub mod player;
 pub mod state;

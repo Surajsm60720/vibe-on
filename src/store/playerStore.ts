@@ -5,6 +5,12 @@ import type { PlayerStatus, TrackDisplay } from '../types';
 
 type RepeatMode = 'off' | 'all' | 'one';
 
+export interface EqPreset {
+    id: string;
+    name: string;
+    gains: number[];
+}
+
 interface PlayerStore {
     // State
     status: PlayerStatus;
@@ -20,6 +26,12 @@ interface PlayerStore {
 
     // Repeat mode
     repeatMode: RepeatMode;
+
+    // Equalizer
+    eqGains: number[]; // 10 bands
+    showEq: boolean;
+    presets: EqPreset[];
+    activePresetId: string | null;
 
     // Queue & Shuffle
     queue: TrackDisplay[];
@@ -58,6 +70,13 @@ interface PlayerStore {
     // Queue Actions
     setQueue: (tracks: TrackDisplay[]) => void;
     addToQueue: (track: TrackDisplay) => void;
+
+    // Equalizer Actions
+    setEqGain: (band: number, gain: number) => void;
+    setShowEq: (show: boolean) => void;
+    addPreset: (name: string, gains: number[]) => void;
+    removePreset: (id: string) => void;
+    applyPreset: (preset: EqPreset) => void;
     playNext: (track: TrackDisplay) => void;
     toggleShuffle: () => void;
     playQueue: (tracks: TrackDisplay[], startIndex?: number) => Promise<void>;
@@ -76,6 +95,32 @@ interface PlayerStore {
     // Autoplay Helpers
     playRandomAlbum: () => Promise<void>;
 }
+
+// --- Default Presets ---
+const DEFAULT_PRESETS: EqPreset[] = [
+    { id: 'flat', name: 'Flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { id: 'acoustic', name: 'Acoustic', gains: [3, 3, 2, 1, 1, 1, 2, 3, 3, 2] },
+    { id: 'classical', name: 'Classical', gains: [4, 3, 2, 2, -1, -1, 0, 2, 3, 4] },
+    { id: 'dance', name: 'Dance', gains: [5, 7, 5, 0, 2, 4, 5, 4, 3, 0] },
+    { id: 'deep', name: 'Deep', gains: [4, 3, 2, 0, -1, -2, -2, -3, -4, -5] },
+    { id: 'electronic', name: 'Electronic', gains: [4, 3, 1, 0, -2, 2, 1, 1, 4, 5] },
+    { id: 'hip-hop', name: 'Hip-Hop', gains: [5, 4, 0, -2, -3, -2, 0, 1, 2, 3] },
+    { id: 'jazz', name: 'Jazz', gains: [0, 2, 4, 3, 3, -1, -1, 1, 3, 5] },
+    { id: 'latin', name: 'Latin', gains: [2, 1, 0, 0, -1, -1, -1, 1, 3, 4] },
+    { id: 'loudness', name: 'Loudness', gains: [6, 4, 0, -2, -5, -2, 0, 2, 5, 7] },
+    { id: 'lounge', name: 'Lounge', gains: [-2, -1, 0, 2, 4, 2, 0, -1, 1, 0] },
+    { id: 'piano', name: 'Piano', gains: [1, 2, 0, 2, 3, 1, 3, 4, 2, 1] },
+    { id: 'pop', name: 'Pop', gains: [-1, 1, 3, 4, 4, -1, -2, -1, 1, 2] },
+    { id: 'r&b', name: 'R&B', gains: [3, 7, 5, 1, -2, -1, 1, 1, 2, 3] },
+    { id: 'rock', name: 'Rock', gains: [5, 4, 3, 1, -1, -1, 0, 2, 3, 4] },
+    { id: 'small-speakers', name: 'Small Speakers', gains: [-5, -4, -2, 1, 3, 5, 4, 2, 0, -2] },
+    { id: 'spoken-word', name: 'Spoken Word', gains: [-4, -2, 0, 1, 4, 5, 5, 2, 0, -3] },
+    { id: 'increase-bass', name: 'Increase Bass', gains: [6, 5, 4, 2, 0, 0, 0, 0, 0, 0] },
+    { id: 'reduce-bass', name: 'Reduce Bass', gains: [-6, -5, -4, -2, 0, 0, 0, 0, 0, 0] },
+    { id: 'increase-treble', name: 'Increase Treble', gains: [0, 0, 0, 0, 0, 2, 4, 6, 8, 8] },
+    { id: 'reduce-treble', name: 'Reduce Treble', gains: [0, 0, 0, 0, 0, -2, -4, -6, -8, -8] },
+    { id: 'increase-vocals', name: 'Increase Vocals', gains: [-2, -2, -1, 1, 3, 5, 4, 2, 0, -1] },
+];
 
 export const usePlayerStore = create<PlayerStore>()(
     persist(
@@ -109,6 +154,12 @@ export const usePlayerStore = create<PlayerStore>()(
 
             // Favorites
             favorites: new Set<string>(),
+
+            // Equalizer
+            eqGains: Array(10).fill(0), // 10 bands initialized to 0dB
+            showEq: false,
+            presets: DEFAULT_PRESETS,
+            activePresetId: 'flat',
 
             // Immersive Mode
             immersiveMode: false,
@@ -321,6 +372,42 @@ export const usePlayerStore = create<PlayerStore>()(
                     console.error("[PlayerStore] Play failed:", e);
                     set({ error: String(e) });
                 }
+            },
+
+            setEqGain: (band: number, gain: number) => {
+                const { eqGains } = get();
+                const newGains = [...eqGains];
+                if (band >= 0 && band < 10) {
+                    newGains[band] = gain;
+                    set({ eqGains: newGains, activePresetId: null }); // Clear active preset (custom mode)
+                    // Send to backend
+                    invoke('set_eq', { band, gain }).catch(err => {
+                        console.error('[PlayerStore] Failed to set EQ:', err);
+                    });
+                }
+            },
+
+            setShowEq: (show: boolean) => set({ showEq: show }),
+
+            addPreset: (name: string, gains: number[]) => {
+                const newId = `custom-${Date.now()}`;
+                const newPreset = { id: newId, name, gains: [...gains] };
+                set(state => ({
+                    presets: [...state.presets, newPreset],
+                    activePresetId: newId
+                }));
+            },
+
+            removePreset: (id: string) => set(state => ({
+                presets: state.presets.filter(p => p.id !== id)
+            })),
+
+            applyPreset: (preset: EqPreset) => {
+                set({ eqGains: [...preset.gains], activePresetId: preset.id });
+                // Apply to backend
+                preset.gains.forEach((gain, index) => {
+                    invoke('set_eq', { band: index, gain }).catch(console.error);
+                });
             },
 
             pause: async () => {
@@ -604,7 +691,11 @@ export const usePlayerStore = create<PlayerStore>()(
                 // Persist Queue? Yes
                 queue: state.queue,
                 originalQueue: state.originalQueue,
-                isShuffled: state.isShuffled
+                originalQueue: state.originalQueue,
+                isShuffled: state.isShuffled,
+                eqGains: state.eqGains,
+                presets: state.presets,
+                activePresetId: state.activePresetId,
             }),
             merge: (persistedState: any, currentState) => ({
                 ...currentState,
@@ -613,7 +704,17 @@ export const usePlayerStore = create<PlayerStore>()(
                 folders: persistedState?.folders || [],
                 queue: persistedState?.queue || [],
                 originalQueue: persistedState?.originalQueue || [],
-                isShuffled: persistedState?.isShuffled || false
+                isShuffled: persistedState?.isShuffled || false,
+                eqGains: persistedState?.eqGains || Array(10).fill(0),
+                activePresetId: persistedState?.activePresetId || 'flat',
+                // Merge logic for presets:
+                // 1. Keep all DEFAULT_PRESETS (updates built-ins)
+                // 2. Keep any persisted presets that are NOT in DEFAULT_PRESETS (custom user presets)
+                presets: (() => {
+                    const persisted = (persistedState?.presets || []) as EqPreset[];
+                    const customPresets = persisted.filter(p => !DEFAULT_PRESETS.some(d => d.id === p.id));
+                    return [...DEFAULT_PRESETS, ...customPresets];
+                })(),
             })
         }
     )

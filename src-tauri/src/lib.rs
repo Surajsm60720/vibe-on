@@ -385,6 +385,16 @@ fn seek(value: f64, state: State<AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn set_eq(band: usize, gain: f32, state: State<AppState>) -> Result<(), String> {
+    let player_guard = state.player.lock().unwrap();
+    if let Some(ref player) = *player_guard {
+        player.set_eq(band, gain)
+    } else {
+        Ok(())
+    }
+}
+
+#[tauri::command]
 fn get_player_state(state: State<AppState>) -> PlayerStatus {
     let player_guard = state.player.lock().unwrap();
     if let Some(ref player) = *player_guard {
@@ -1294,13 +1304,15 @@ pub fn run() {
             apply_lrc_file,
             init_torrent_backend,
             add_magnet_link,
-            get_torrents,
             inspect_magnet,
             inspect_torrent_file,
             add_torrent_with_options,
             delete_torrent,
+            // Torrent Control
+            get_torrents,
             pause_torrent,
             resume_torrent,
+            search_torrents,
             // Mood feature commands
             mood::check_essentia_available,
             mood::analyze_track,
@@ -1316,6 +1328,8 @@ pub fn run() {
             #[cfg(debug_assertions)]
             mood::debug_get_statistics,
             search_torrents,
+            // Equalizer
+            set_eq,
         ])
         .setup(|_app| {
             // Initialize Windows Media Controls with the main window handle

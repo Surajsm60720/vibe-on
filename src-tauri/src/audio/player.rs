@@ -10,7 +10,9 @@ use lofty::prelude::*;
 use lofty::probe::Probe;
 use rodio::{Decoder, OutputStream, Sink, Source};
 
+use super::equalizer::Equalizer;
 use super::state::{PlayerState, PlayerStatus, TrackInfo};
+use std::sync::Mutex;
 
 /// Commands sent to the audio thread
 pub enum AudioCommand {
@@ -22,12 +24,14 @@ pub enum AudioCommand {
     Seek(f64), // New command
     GetStatus(Sender<PlayerStatus>),
     Shutdown,
+    SetEq(usize, f32), // band_index, gain_db
 }
 
 /// Thread-safe handle to the audio player
 pub struct AudioPlayer {
     command_tx: Sender<AudioCommand>,
     _thread: JoinHandle<()>,
+    eq_gains: Arc<Mutex<Vec<f32>>>,
 }
 
 impl AudioPlayer {
@@ -36,8 +40,11 @@ impl AudioPlayer {
         let (command_tx, command_rx) = channel::<AudioCommand>();
         let (init_tx, init_rx) = std::sync::mpsc::sync_channel(0);
 
+        let eq_gains = Arc::new(Mutex::new(vec![0.0; 10]));
+        let eq_gains_clone = eq_gains.clone();
+
         let thread = thread::spawn(move || {
-            AudioThread::run(command_rx, init_tx);
+            AudioThread::run(command_rx, init_tx, eq_gains_clone);
         });
 
         // Wait for initialization to complete
@@ -45,6 +52,7 @@ impl AudioPlayer {
             Ok(Ok(())) => Ok(Self {
                 command_tx,
                 _thread: thread,
+                eq_gains,
             }),
             Ok(Err(e)) => Err(format!("Audio initialization failed: {}", e)),
             Err(_) => Err("Audio thread panicked during initialization".to_string()),
@@ -95,6 +103,27 @@ impl AudioPlayer {
             PlayerStatus::default()
         }
     }
+
+    pub fn set_eq(&self, band: usize, gain: f32) -> Result<(), String> {
+        // Update local state (shared memory)
+        if let Ok(mut gains) = self.eq_gains.lock() {
+            if band < gains.len() {
+                gains[band] = gain;
+            }
+        }
+
+        // Notify thread (though thread might poll, good to have explicit command if we move to push model later
+        // OR simply to force wake up loop if needed, but here we just update memory and thread polls in Equalizer)
+        // Actually, we need to send command if we want explicit event handling, but Equalizer source reads from the Arc.
+        // Sending a command is useful if we want to log or ensure thread is alive.
+        // For this impl, I'll send a command so the thread knows to wake/log,
+        // AND mainly because the Equalizer struct inside the thread holds an Arc to the SAME Mutex?
+        // Yes, we will pass the Arc to Equalizer.
+
+        self.command_tx
+            .send(AudioCommand::SetEq(band, gain))
+            .map_err(|e| format!("Failed to send eq command: {}", e))
+    }
 }
 
 impl Drop for AudioPlayer {
@@ -113,12 +142,14 @@ struct AudioThread {
     volume: f32,
     play_start_time: Option<Instant>,
     accumulated_time: f64,
+    eq_gains: Arc<Mutex<Vec<f32>>>,
 }
 
 impl AudioThread {
     fn run(
         command_rx: Receiver<AudioCommand>,
         init_tx: std::sync::mpsc::SyncSender<Result<(), String>>,
+        eq_gains: Arc<Mutex<Vec<f32>>>,
     ) {
         // Initialize audio output on this thread
         let (stream, stream_handle) = match OutputStream::try_default() {
@@ -149,6 +180,7 @@ impl AudioThread {
             volume: 1.0,
             play_start_time: None,
             accumulated_time: 0.0,
+            eq_gains,
         };
 
         loop {
@@ -178,6 +210,15 @@ impl AudioThread {
                 }
                 Ok(AudioCommand::Shutdown) => {
                     break;
+                }
+                Ok(AudioCommand::SetEq(band, gain)) => {
+                    // Values are already updated in shared mutex by the caller usually,
+                    // but if we want to be safe or if caller didn't update mutex:
+                    // In this design, caller updates mutex. Command is just for signaling.
+                    // Optionally we could force update here if we passed value only.
+                    // But wait, the Mutex is shared between generic AudioPlayer and AudioThread.
+                    // The Equalizer Struct ALSO has the Arc.
+                    println!("[AudioThread] EQ changed: band {} -> {} dB", band, gain);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     // Check if track finished
@@ -241,7 +282,12 @@ impl AudioThread {
         };
 
         sink.set_volume(self.volume);
-        sink.append(source);
+
+        // Wrap source in Equalizer
+        // Ensure source is converted to f32
+        let source_f32 = source.convert_samples::<f32>();
+        let equalizer = Equalizer::new(source_f32, self.eq_gains.clone());
+        sink.append(equalizer);
 
         self.sink = Some(sink);
         self.state = PlayerState::Playing;
@@ -412,7 +458,11 @@ impl AudioThread {
             };
 
             sink.set_volume(self.volume);
-            sink.append(skipped_source);
+
+            // Wrap source in Equalizer
+            let source_f32 = skipped_source.convert_samples::<f32>();
+            let equalizer = Equalizer::new(source_f32, self.eq_gains.clone());
+            sink.append(equalizer);
 
             if !was_playing {
                 sink.pause();

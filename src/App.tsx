@@ -23,11 +23,12 @@ import { FavoritesView } from './components/FavoritesView';
 import { StatisticsPage } from './components/StatisticsPage';
 import { ImmersiveView } from './components/ImmersiveView';
 import { MoodRadio } from './components/mood';
+import Equalizer from './components/Equalizer';
 import { AnimatePresence } from 'motion/react';
 
 function App() {
   useMediaSession(); // Initialize System Media Controls
-  const { loadLibrary, status, pause, resume, playFile, immersiveMode } = usePlayerStore();
+  const { loadLibrary, status, pause, resume, playFile, immersiveMode, showEq, setShowEq } = usePlayerStore();
   const [view, setView] = useState<'tracks' | 'albums' | 'artists' | 'settings' | 'ytmusic' | 'favorites' | 'statistics' | 'torrents' | 'moodradio'>('tracks');
 
   useEffect(() => {
@@ -214,6 +215,10 @@ function App() {
 
       <AnimatePresence>
         {immersiveMode && <ImmersiveView />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showEq && <Equalizer onClose={() => setShowEq(false)} />}
       </AnimatePresence>
     </div>
   );
