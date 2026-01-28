@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { useLyricsStore } from '../store/lyricsStore';
 import { usePlayerStore } from '../store/playerStore';
 import { useThemeStore } from '../store/themeStore';
+import type { LyricsLine } from '../types';
 
 interface SideLyricsProps {
     variant?: 'carousel' | 'scrollable';
@@ -56,7 +57,7 @@ export function SideLyrics({ variant = 'carousel' }: SideLyricsProps) {
         }
     }, [activeLineIndex, variant]);
 
-    const renderLineContent = (line: typeof lines[0], isActive: boolean) => {
+    const renderLineContent = (line: LyricsLine, isActive: boolean) => {
         if (lyricsMode === 'romaji') {
             return line.romaji || line.text;
         }

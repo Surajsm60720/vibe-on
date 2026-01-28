@@ -95,6 +95,19 @@ export function PlayerBar() {
     const { state, track, position_secs, volume } = status;
     const lastStateRef = useRef(state);
 
+    // Sync DSP Settings on Hydration/Change
+    const { reverbMix, reverbDecay, speed, preampDb, balance, stereoWidth } = usePlayerStore();
+    useEffect(() => {
+        // This ensures that when the store rehydrates (and values change from defaults),
+        // or when any component changes these values, the backend is updated.
+        // This covers the startup sync case.
+        invoke('set_reverb', { mix: reverbMix, decay: reverbDecay }).catch(console.error);
+        invoke('set_speed', { value: speed }).catch(console.error);
+        invoke('set_eq', { band: 10, gain: preampDb }).catch(console.error);
+        invoke('set_eq', { band: 11, gain: balance }).catch(console.error);
+        invoke('set_eq', { band: 12, gain: stereoWidth }).catch(console.error);
+    }, [reverbMix, reverbDecay, speed, preampDb, balance, stereoWidth]);
+
     // Poll for status updates while playing
     useEffect(() => {
         if (state === 'Playing') {

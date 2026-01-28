@@ -5,6 +5,7 @@ import { usePlayerStore } from '../store/playerStore';
 import { useThemeStore } from '../store/themeStore';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import type { LyricsLine } from '../types';
 
 export function LyricsPanel() {
     const { lines, plainLyrics, showLyrics, closeLyrics, isLoading, error, isInstrumental, fetchLyrics, lyricsMode, setLyricsMode, isTranslating, translationError } = useLyricsStore();
@@ -102,7 +103,7 @@ export function LyricsPanel() {
         setLyricsMode(modes[nextIndex]);
     };
 
-    const renderLineContent = (line: typeof lines[0], isActive: boolean) => {
+    const renderLineContent = (line: LyricsLine, isActive: boolean) => {
         if (lyricsMode === 'romaji') {
             return line.romaji || line.text;
         }

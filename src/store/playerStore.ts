@@ -112,6 +112,7 @@ interface PlayerStore {
     setStereoWidth: (val: number) => void;
     setSpeed: (speed: number) => void;
     setReverb: (mix: number, decay: number) => void;
+    syncAudioSettings: () => void;
 }
 
 // --- Default Presets ---
@@ -143,6 +144,7 @@ const DEFAULT_PRESETS: EqPreset[] = [
 export const usePlayerStore = create<PlayerStore>()(
     persist(
         (set, get) => ({
+            // ... (rest of store)
             // Initial state
             status: {
                 state: 'Stopped',
@@ -732,6 +734,24 @@ export const usePlayerStore = create<PlayerStore>()(
                 set({ reverbMix: mix, reverbDecay: decay });
                 invoke('set_reverb', { mix, decay }).catch(console.error);
             },
+
+            // Sync all settings to backend (called on startup)
+            syncAudioSettings: () => {
+                const state = get();
+                console.log('[PlayerStore] Syncing audio settings to backend...');
+                invoke('set_reverb', { mix: state.reverbMix, decay: state.reverbDecay }).catch(console.error);
+                invoke('set_speed', { value: state.speed }).catch(console.error);
+
+                // EQ
+                state.eqGains.forEach((gain, index) => {
+                    invoke('set_eq', { band: index, gain }).catch(console.error);
+                });
+
+                // DSP
+                invoke('set_eq', { band: 10, gain: state.preampDb }).catch(console.error);
+                invoke('set_eq', { band: 11, gain: state.balance }).catch(console.error);
+                invoke('set_eq', { band: 12, gain: state.stereoWidth }).catch(console.error);
+            }
         }),
         {
             name: 'vibe-player-storage',
@@ -786,7 +806,7 @@ export const usePlayerStore = create<PlayerStore>()(
                     const customPresets = persisted.filter(p => !defaultIds.has(p.id));
                     return [...DEFAULT_PRESETS, ...customPresets];
                 })(),
-            })
+            }),
         }
     )
 );
