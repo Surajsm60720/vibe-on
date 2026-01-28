@@ -44,6 +44,10 @@ interface PlayerStore {
 
     playCounts: Record<string, number>; // Map of path -> count
 
+    // Persistence
+    savedVolume: number;
+    lastPlayedTrack: { path: string; position: number } | null;
+
     // Actions
     playFile: (path: string) => Promise<void>;
     pause: () => Promise<void>;
@@ -143,6 +147,10 @@ export const usePlayerStore = create<PlayerStore>()(
             sort: null,
             activeSource: 'local',
             searchQuery: '',
+
+            // Persistence defaults
+            savedVolume: 1.0,
+            lastPlayedTrack: null,
 
             // Queue & Shuffle
             queue: [],
@@ -452,6 +460,7 @@ export const usePlayerStore = create<PlayerStore>()(
             setVolume: async (value: number) => {
                 try {
                     await invoke('set_volume', { value });
+                    set({ savedVolume: value });
                     await get().refreshStatus();
                 } catch (e) {
                     set({ error: String(e) });
@@ -695,6 +704,7 @@ export const usePlayerStore = create<PlayerStore>()(
                 eqGains: state.eqGains,
                 presets: state.presets,
                 activePresetId: state.activePresetId,
+                savedVolume: state.savedVolume, // Persist volume from upstream
             }),
             merge: (persistedState: any, currentState) => ({
                 ...currentState,
@@ -706,6 +716,7 @@ export const usePlayerStore = create<PlayerStore>()(
                 isShuffled: persistedState?.isShuffled || false,
                 eqGains: persistedState?.eqGains || Array(10).fill(0),
                 activePresetId: persistedState?.activePresetId || 'flat',
+                savedVolume: persistedState?.savedVolume ?? 1.0,
                 // Merge logic for presets:
                 // 1. Keep all DEFAULT_PRESETS (updates built-ins)
                 // 2. Keep any persisted presets that are NOT in DEFAULT_PRESETS (custom user presets)

@@ -35,6 +35,12 @@ function App() {
     loadLibrary();
   }, [loadLibrary]);
 
+  // Restore Volume
+  useEffect(() => {
+    const { savedVolume, setVolume } = usePlayerStore.getState();
+    setVolume(savedVolume);
+  }, []);
+
   // Global spacebar play/pause handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

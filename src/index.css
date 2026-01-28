@@ -48,6 +48,15 @@
         /* Otuline */
         --md-sys-color-outline: #938f99;
         --md-sys-color-outline-variant: #484649;
+
+        /* Shape */
+        --radius-large: 2rem;
+        /* 32px */
+
+        /* State Layers */
+        --state-hover-opacity: 0.08;
+        --state-focus-opacity: 0.12;
+        --state-press-opacity: 0.12;
     }
 
     body {
