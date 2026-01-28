@@ -691,7 +691,6 @@ export const usePlayerStore = create<PlayerStore>()(
                 // Persist Queue? Yes
                 queue: state.queue,
                 originalQueue: state.originalQueue,
-                originalQueue: state.originalQueue,
                 isShuffled: state.isShuffled,
                 eqGains: state.eqGains,
                 presets: state.presets,

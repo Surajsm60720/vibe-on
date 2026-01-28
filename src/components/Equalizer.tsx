@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import { usePlayerStore } from '../store/playerStore';
 import { motion } from 'framer-motion';
 
@@ -10,7 +10,6 @@ const BAND_LABELS = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '1
 
 const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const { eqGains, setEqGain, presets, applyPreset, addPreset, activePresetId } = usePlayerStore();
-    const containerRef = useRef<HTMLDivElement>(null);
 
     const handleReset = () => {
         BANDS.forEach((_, index) => {
