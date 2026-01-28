@@ -31,6 +31,7 @@ export interface TrackDisplay extends TrackInfo {
 export interface LyricsLine {
   time: number;  // Timestamp in seconds
   text: string;  // Lyric line content
+  romaji?: string; // Romaji translation
 }
 
 // Lyrics response from backend

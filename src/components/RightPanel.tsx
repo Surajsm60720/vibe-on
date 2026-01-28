@@ -11,7 +11,7 @@ import { SquigglySlider } from './SquigglySlider';
 
 export function RightPanel() {
     const { status, queue, playFile, toggleImmersiveMode, favorites, toggleFavorite } = usePlayerStore();
-    const { lines, plainLyrics, isInstrumental, isLoading, fetchLyrics, error, toggleLyrics } = useLyricsStore();
+    const { lines, plainLyrics, isInstrumental, isLoading, fetchLyrics, error, toggleLyrics, lyricsMode } = useLyricsStore();
     const { track } = status;
     const { navigateToAlbum } = useNavigationStore();
     const [isCollapsed, setIsCollapsed] = useState(false);
@@ -312,26 +312,54 @@ export function RightPanel() {
                                             <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
                                             <h3 className="text-title-small font-semibold text-on-surface">Lyrics</h3>
                                         </div>
-                                        <div className="flex items-center gap-1 bg-surface-container rounded-full p-1">
-                                            <button
-                                                onClick={() => setShowLyrics(false)}
-                                                className="transition-all duration-200"
-                                                title="Show Queue"
-                                            >
-                                                <CloverIcon active={!showLyrics} color="var(--md-sys-color-primary)">
-                                                    <IconQueue size={18} />
-                                                </CloverIcon>
-                                            </button>
-                                            <button
-                                                onClick={() => setShowLyrics(true)}
-                                                className="transition-all duration-200"
-                                                title="Show Lyrics"
-                                            >
-                                                <CloverIcon active={showLyrics} color="var(--md-sys-color-primary)">
-                                                    <IconLyrics size={18} />
-                                                </CloverIcon>
-                                            </button>
+                                        <div className="flex items-center gap-2">
+                                    {/* Translation Indicator */}
+                                    {useLyricsStore.getState().isTranslating && (
+                                        <div className="w-4 h-4 border-2 border-primary/50 border-t-primary rounded-full animate-spin mr-1" title="Translating..." />
+                                    )}
+                                    {useLyricsStore.getState().translationError && !useLyricsStore.getState().isTranslating && (
+                                        <div className="mr-2 text-error" title={useLyricsStore.getState().translationError || "Translation Failed"}>
+                                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <circle cx="12" cy="12" r="10" />
+                                                <line x1="12" y1="8" x2="12" y2="12" />
+                                                <line x1="12" y1="16" x2="12.01" y2="16" />
+                                            </svg>
                                         </div>
+                                    )}
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            const modes: ('original' | 'romaji' | 'both')[] = ['original', 'romaji', 'both'];
+                                            const next = modes[(modes.indexOf(lyricsMode) + 1) % 3];
+                                            useLyricsStore.getState().setLyricsMode(next);
+                                        }}
+                                        className="h-7 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest text-xs font-medium text-on-surface-variant hover:text-primary transition-colors border border-outline-variant/30 uppercase"
+                                        title={`Mode: ${lyricsMode}`}
+                                    >
+                                        {lyricsMode === 'original' ? 'JP' : lyricsMode === 'romaji' ? 'RO' : 'BOTH'}
+                                    </button>
+
+                                    <div className="flex items-center gap-1 bg-surface-container rounded-full p-1">
+                                                <button
+                                                    onClick={() => setShowLyrics(false)}
+                                                    className="transition-all duration-200"
+                                                    title="Show Queue"
+                                                >
+                                                    <CloverIcon active={!showLyrics} color="var(--md-sys-color-primary)">
+                                                        <IconQueue size={18} />
+                                                    </CloverIcon>
+                                                </button>
+                                                <button
+                                                    onClick={() => setShowLyrics(true)}
+                                                    className="transition-all duration-200"
+                                                    title="Show Lyrics"
+                                                >
+                                                    <CloverIcon active={showLyrics} color="var(--md-sys-color-primary)">
+                                                        <IconLyrics size={18} />
+                                                    </CloverIcon>
+                                                </button>
+                                            </div>
+                                </div>
                                     </div>
 
                                     {/* Window-like container */}

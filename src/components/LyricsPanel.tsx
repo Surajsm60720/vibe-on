@@ -7,7 +7,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
 export function LyricsPanel() {
-    const { lines, plainLyrics, showLyrics, closeLyrics, isLoading, error, isInstrumental, fetchLyrics } = useLyricsStore();
+    const { lines, plainLyrics, showLyrics, closeLyrics, isLoading, error, isInstrumental, fetchLyrics, lyricsMode, setLyricsMode, isTranslating, translationError } = useLyricsStore();
     const { status, seek } = usePlayerStore();
     const { colors } = useThemeStore();
     const { primary, surface } = colors; // Destructure needed colors
@@ -96,6 +96,29 @@ export function LyricsPanel() {
         }
     };
 
+    const toggleMode = () => {
+        const modes: ('original' | 'romaji' | 'both')[] = ['original', 'romaji', 'both'];
+        const nextIndex = (modes.indexOf(lyricsMode) + 1) % 3;
+        setLyricsMode(modes[nextIndex]);
+    };
+
+    const renderLineContent = (line: typeof lines[0], isActive: boolean) => {
+        if (lyricsMode === 'romaji') {
+            return line.romaji || line.text;
+        }
+        if (lyricsMode === 'both' && line.romaji) {
+            return (
+                <div className="flex flex-col items-center gap-1">
+                    <span className={`text-base font-normal tracking-wide transition-colors duration-300 ${isActive ? 'text-white/90' : 'text-white/40'}`}>
+                        {line.romaji}
+                    </span>
+                    <span>{line.text}</span>
+                </div>
+            );
+        }
+        return line.text;
+    };
+
     if (!showLyrics) return null;
 
     return (
@@ -149,6 +172,37 @@ export function LyricsPanel() {
                         </div>
 
                         <div className="flex items-center gap-2">
+                            {/* Translation Indicator or Error */}
+                            {isTranslating && (
+                                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 animate-pulse border border-white/5">
+                                    <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                                    <span className="text-xs font-medium text-white/70">Translating...</span>
+                                </div>
+                            )}
+
+                            {translationError && !isTranslating && (
+                                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-error/10 border border-error/20" title={translationError}>
+                                    <svg className="w-3 h-3 text-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <line x1="12" y1="8" x2="12" y2="12" />
+                                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                                    </svg>
+                                    <span className="text-xs font-medium text-error">Translation Failed</span>
+                                </div>
+                            )}
+
+                            {/* Mode Toggle */}
+                            <button
+                                onClick={toggleMode}
+                                className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-white/70 hover:text-white transition-colors flex items-center gap-1.5 border border-white/5"
+                                title="Toggle Lyrics Mode"
+                            >
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M4 7V4h16v3M9 20h6M12 4v16" />
+                                </svg>
+                                <span className="uppercase">{lyricsMode === 'original' ? 'Original' : lyricsMode === 'romaji' ? 'Romaji' : 'Both'}</span>
+                            </button>
+
                             {/* Add LRC Button */}
                             <button
                                 onClick={handleAddLrc}
@@ -216,27 +270,30 @@ export function LyricsPanel() {
                         {/* Synced Lyrics - Click to seek */}
                         {lines && lines.length > 0 && !isLoading && (
                             <div className="space-y-4">
-                                {lines.map((line, index) => (
-                                    <div
-                                        key={`${line.time}-${index}`}
-                                        ref={index === activeLineIndex ? activeLineRef : null}
-                                        onClick={() => seek(line.time)}
-                                        className="transition-all duration-300 cursor-pointer hover:opacity-100 group"
-                                        style={{
-                                            opacity: index === activeLineIndex ? 1 : 0.4,
-                                            transform: index === activeLineIndex ? 'scale(1.02)' : 'scale(1)',
-                                        }}
-                                    >
-                                        <p
-                                            className="text-2xl font-semibold leading-relaxed transition-colors duration-300 group-hover:text-white"
+                                {lines.map((line, index) => {
+                                    const isActive = index === activeLineIndex;
+                                    return (
+                                        <div
+                                            key={`${line.time}-${index}`}
+                                            ref={isActive ? activeLineRef : null}
+                                            onClick={() => seek(line.time)}
+                                            className="transition-all duration-300 cursor-pointer hover:opacity-100 group text-center"
                                             style={{
-                                                color: index === activeLineIndex ? primary : 'white',
+                                                opacity: isActive ? 1 : 0.4,
+                                                transform: isActive ? 'scale(1.02)' : 'scale(1)',
                                             }}
                                         >
-                                            {line.text}
-                                        </p>
-                                    </div>
-                                ))}
+                                            <div
+                                                className="text-2xl font-semibold leading-relaxed transition-colors duration-300 group-hover:text-white"
+                                                style={{
+                                                    color: isActive ? primary : 'white',
+                                                }}
+                                            >
+                                                {renderLineContent(line, isActive)}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                                 {/* Bottom padding for scroll */}
                                 <div className="h-32" />
                             </div>
@@ -244,7 +301,7 @@ export function LyricsPanel() {
 
                         {/* Plain Lyrics Fallback */}
                         {!lines && plainLyrics && !isLoading && !isInstrumental && (
-                            <div className="whitespace-pre-wrap text-lg text-white/80 leading-relaxed">
+                            <div className="whitespace-pre-wrap text-lg text-white/80 leading-relaxed text-center">
                                 {plainLyrics}
                             </div>
                         )}

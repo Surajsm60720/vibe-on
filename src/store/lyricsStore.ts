@@ -21,6 +21,9 @@ interface LyricsStore {
     showLyrics: boolean;              // Panel visibility
     currentTrackId: string | null;    // Track we fetched lyrics for (path)
     isInstrumental: boolean;
+    lyricsMode: 'original' | 'romaji' | 'both';
+    isTranslating: boolean;
+    translationError: string | null;
 
     // Actions
     fetchLyrics: (artist: string, track: string, duration: number, trackPath: string) => Promise<void>;
@@ -28,6 +31,7 @@ interface LyricsStore {
     toggleLyrics: () => void;
     closeLyrics: () => void;
     clearLyrics: () => void;
+    setLyricsMode: (mode: 'original' | 'romaji' | 'both') => void;
 }
 
 /**
@@ -71,6 +75,15 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
     currentTrackId: null,
     isInstrumental: false,
 
+    isTranslating: false, // Initial state
+    translationError: null,
+    lyricsMode: (localStorage.getItem('lyricsMode') as 'original' | 'romaji' | 'both') || 'original',
+
+    setLyricsMode: (mode: 'original' | 'romaji' | 'both') => {
+        localStorage.setItem('lyricsMode', mode);
+        set({ lyricsMode: mode });
+    },
+
     // Load lyrics from backend cache (prefetched when song started)
     loadCachedLyrics: async (trackPath: string) => {
         // Don't refetch for same track if we already have lyrics
@@ -80,7 +93,7 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
         }
 
         console.log('[Lyrics] Loading cached lyrics for:', trackPath);
-        set({ isLoading: true, loadingStatus: 'Checking cache...', error: null, lines: null, plainLyrics: null, isInstrumental: false });
+        set({ isLoading: true, loadingStatus: 'Checking cache...', error: null, lines: null, plainLyrics: null, isInstrumental: false, isTranslating: false });
 
         // Poll the cache - lyrics are being prefetched in the background
         const maxAttempts = 20; // 10 seconds max wait
@@ -114,6 +127,29 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
                         isLoading: false,
                         isInstrumental: response.instrumental
                     });
+
+                    // Attempt conversion
+                    set({ isTranslating: true, translationError: null });
+                    import('../utils/lyricsUtils').then(({ convertLyrics }) => {
+                        convertLyrics(parsed).then(converted => {
+                            if (get().currentTrackId === trackPath) {
+                                set({ lines: converted, isTranslating: false });
+                            }
+                        }).catch(err => {
+                            console.error('[LyricsStore] Conversion failed', err);
+                            // Set error state so user can see it
+                            if (get().currentTrackId === trackPath) {
+                                set({
+                                    isTranslating: false,
+                                    translationError: err.message || String(err)
+                                });
+                            }
+                        });
+                    }).catch(err => {
+                        console.error('[LyricsStore] Failed to import converter', err);
+                        set({ isTranslating: false, translationError: 'Failed to load converter' });
+                    });
+
                 } else if (response.plainLyrics) {
                     console.log('[Lyrics] Found plain lyrics');
                     set({
@@ -121,7 +157,8 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
                         plainLyrics: response.plainLyrics,
                         currentTrackId: trackPath,
                         isLoading: false,
-                        isInstrumental: response.instrumental
+                        isInstrumental: response.instrumental,
+                        isTranslating: false
                     });
                 } else if (response.instrumental) {
                     console.log('[Lyrics] Track is instrumental');
@@ -131,21 +168,24 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
                         currentTrackId: trackPath,
                         isLoading: false,
                         isInstrumental: true,
-                        error: null
+                        error: null,
+                        isTranslating: false
                     });
                 } else if (response.error) {
                     console.log('[Lyrics] Error from cache:', response.error);
                     set({
                         error: response.error === 'No lyrics cached for this track' ? 'No lyrics found' : response.error,
                         currentTrackId: trackPath,
-                        isLoading: false
+                        isLoading: false,
+                        isTranslating: false
                     });
                 } else {
                     console.log('[Lyrics] No lyrics found');
                     set({
                         error: 'No lyrics found',
                         currentTrackId: trackPath,
-                        isLoading: false
+                        isLoading: false,
+                        isTranslating: false
                     });
                 }
                 return true;
@@ -154,7 +194,8 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
                 set({
                     error: String(e),
                     isLoading: false,
-                    currentTrackId: trackPath
+                    currentTrackId: trackPath,
+                    isTranslating: false
                 });
                 return true;
             }
@@ -179,7 +220,8 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
                         set({
                             error: 'Lyrics fetch timed out',
                             currentTrackId: trackPath,
-                            isLoading: false
+                            isLoading: false,
+                            isTranslating: false
                         });
                         resolve();
                     }
@@ -197,7 +239,7 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
             return;
         }
 
-        set({ isLoading: true, loadingStatus: 'Starting search...', error: null, lines: null, plainLyrics: null, isInstrumental: false });
+        set({ isLoading: true, loadingStatus: 'Starting search...', error: null, lines: null, plainLyrics: null, isInstrumental: false, isTranslating: false });
 
         // Listen for progress events
         let unlisten: (() => void) | undefined;
@@ -238,6 +280,28 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
                     isLoading: false,
                     isInstrumental
                 });
+
+                // Attempt conversion
+                set({ isTranslating: true, translationError: null });
+                import('../utils/lyricsUtils').then(({ convertLyrics }) => {
+                    convertLyrics(parsed).then(converted => {
+                        if (get().currentTrackId === trackPath) {
+                            set({ lines: converted, isTranslating: false });
+                        }
+                    }).catch(err => {
+                        console.error('[LyricsStore] Conversion failed', err);
+                        if (get().currentTrackId === trackPath) {
+                            set({
+                                isTranslating: false,
+                                translationError: err.message || String(err)
+                            });
+                        }
+                    });
+                }).catch(err => {
+                    console.error('[LyricsStore] Failed to import converter', err);
+                    set({ isTranslating: false, translationError: 'Failed to load converter' });
+                });
+
             } else if (response.plainLyrics) {
                 // Fallback to plain lyrics
                 set({
@@ -245,7 +309,8 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
                     plainLyrics: response.plainLyrics,
                     currentTrackId: trackPath,
                     isLoading: false,
-                    isInstrumental
+                    isInstrumental,
+                    isTranslating: false
                 });
             } else if (isInstrumental) {
                 set({
@@ -254,20 +319,23 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
                     currentTrackId: trackPath,
                     isLoading: false,
                     isInstrumental: true,
-                    error: null
+                    error: null,
+                    isTranslating: false
                 });
             } else {
                 set({
                     error: 'No lyrics found',
                     currentTrackId: trackPath,
-                    isLoading: false
+                    isLoading: false,
+                    isTranslating: false
                 });
             }
         } catch (e) {
             set({
                 error: String(e),
                 isLoading: false,
-                currentTrackId: trackPath
+                currentTrackId: trackPath,
+                isTranslating: false
             });
         } finally {
             if (unlisten) unlisten();
@@ -288,7 +356,9 @@ export const useLyricsStore = create<LyricsStore>()((set, get) => ({
             plainLyrics: null,
             error: null,
             currentTrackId: null,
-            isInstrumental: false
+            isInstrumental: false,
+            isTranslating: false,
+            translationError: null
         });
     },
 }));

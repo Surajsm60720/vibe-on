@@ -9,7 +9,7 @@ interface SideLyricsProps {
 }
 
 export function SideLyrics({ variant = 'carousel' }: SideLyricsProps) {
-    const { lines, plainLyrics, isLoading, error, isInstrumental, loadingStatus } = useLyricsStore();
+    const { lines, plainLyrics, isLoading, error, isInstrumental, loadingStatus, lyricsMode } = useLyricsStore();
     const { status, seek } = usePlayerStore();
     const { colors } = useThemeStore();
     const { primary } = colors;
@@ -43,7 +43,7 @@ export function SideLyrics({ variant = 'carousel' }: SideLyricsProps) {
                 setOffsetY(newOffset);
             }
         }
-    }, [activeLineIndex, lines, variant]);
+    }, [activeLineIndex, lines, variant, lyricsMode]);
 
     // Scrollable Logic (Auto-scroll to active)
     useEffect(() => {
@@ -55,6 +55,23 @@ export function SideLyrics({ variant = 'carousel' }: SideLyricsProps) {
             });
         }
     }, [activeLineIndex, variant]);
+
+    const renderLineContent = (line: typeof lines[0], isActive: boolean) => {
+        if (lyricsMode === 'romaji') {
+            return line.romaji || line.text;
+        }
+        if (lyricsMode === 'both' && line.romaji) {
+            return (
+                <div className="flex flex-col items-center gap-0.5">
+                    <span className={`text-sm opacity-70 ${isActive ? 'text-on-surface' : 'text-on-surface-variant'}`}>
+                        {line.romaji}
+                    </span>
+                    <span>{line.text}</span>
+                </div>
+            );
+        }
+        return line.text;
+    };
 
     if (isLoading) {
         return (
@@ -87,22 +104,25 @@ export function SideLyrics({ variant = 'carousel' }: SideLyricsProps) {
             <div className="h-full overflow-y-auto px-4 py-8 scroll-smooth" ref={containerRef}>
                 {lines && lines.length > 0 ? (
                     <div className="flex flex-col gap-4">
-                        {lines.map((line, index) => (
-                            <div
-                                key={`${line.time}-${index}`}
-                                ref={el => { lineRefs.current[index] = el; }}
-                                onClick={() => seek(line.time)}
-                                className={`
-                                    cursor-pointer p-3 rounded-lg transition-all duration-200 text-lg
-                                    ${index === activeLineIndex
-                                        ? 'bg-surface-container-highest text-on-surface font-semibold shadow-sm'
-                                        : 'text-on-surface-variant/70 hover:bg-surface-container-high hover:text-on-surface'
-                                    }
-                                `}
-                            >
-                                {line.text}
-                            </div>
-                        ))}
+                        {lines.map((line, index) => {
+                            const isActive = index === activeLineIndex;
+                            return (
+                                <div
+                                    key={`${line.time}-${index}`}
+                                    ref={el => { lineRefs.current[index] = el; }}
+                                    onClick={() => seek(line.time)}
+                                    className={`
+                                        cursor-pointer p-3 rounded-lg transition-all duration-200 text-lg
+                                        ${isActive
+                                            ? 'bg-surface-container-highest text-on-surface font-semibold shadow-sm'
+                                            : 'text-on-surface-variant/70 hover:bg-surface-container-high hover:text-on-surface'
+                                        }
+                                    `}
+                                >
+                                    {renderLineContent(line, isActive)}
+                                </div>
+                            );
+                        })}
                     </div>
                 ) : plainLyrics ? (
                     <div className="whitespace-pre-wrap text-body-medium text-on-surface/80 leading-relaxed max-w-2xl mx-auto">
@@ -126,33 +146,36 @@ export function SideLyrics({ variant = 'carousel' }: SideLyricsProps) {
                     animate={{ y: offsetY }}
                     transition={{ type: 'spring', stiffness: 100, damping: 20, mass: 1 }}
                 >
-                    {lines.map((line, index) => (
-                        <motion.div
-                            key={`${line.time}-${index}`}
-                            ref={el => { lineRefs.current[index] = el; }}
-                            onClick={() => seek(line.time)}
-                            initial={false}
-                            animate={{
-                                opacity: index === activeLineIndex ? 1 : 0.25,
-                                scale: index === activeLineIndex ? 1.05 : 0.95,
-                            }}
-                            transition={{ duration: 0.3 }}
-                            className={`
-                                cursor-pointer text-center px-6 max-w-full transition-colors duration-300
-                                ${index === activeLineIndex ? 'font-bold z-10' : 'hover:opacity-60'}
-                            `}
-                        >
-                            <p
-                                className="text-xl md:text-2xl leading-relaxed"
-                                style={{
-                                    color: index === activeLineIndex ? primary : undefined,
-                                    textShadow: index === activeLineIndex ? `0 0 25px ${primary}60` : 'none'
+                    {lines.map((line, index) => {
+                        const isActive = index === activeLineIndex;
+                        return (
+                            <motion.div
+                                key={`${line.time}-${index}`}
+                                ref={el => { lineRefs.current[index] = el; }}
+                                onClick={() => seek(line.time)}
+                                initial={false}
+                                animate={{
+                                    opacity: isActive ? 1 : 0.25,
+                                    scale: isActive ? 1.05 : 0.95,
                                 }}
+                                transition={{ duration: 0.3 }}
+                                className={`
+                                    cursor-pointer text-center px-6 max-w-full transition-colors duration-300
+                                    ${isActive ? 'font-bold z-10' : 'hover:opacity-60'}
+                                `}
                             >
-                                {line.text}
-                            </p>
-                        </motion.div>
-                    ))}
+                                <div
+                                    className="text-xl md:text-2xl leading-relaxed"
+                                    style={{
+                                        color: isActive ? primary : undefined,
+                                        textShadow: isActive ? `0 0 25px ${primary}60` : 'none'
+                                    }}
+                                >
+                                    {renderLineContent(line, isActive)}
+                                </div>
+                            </motion.div>
+                        );
+                    })}
                 </motion.div>
             )}
 

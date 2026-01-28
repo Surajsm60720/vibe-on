@@ -476,6 +476,7 @@ const IsolatedProgressRing = React.memo(({ colors }: { colors: any }) => {
 const IsolatedLyricsRenderer = React.memo(({ lines, colors }: { lines: any[] | null, colors: any }) => {
     // Only subscribe to position_secs for Active Index Calculation
     const position_secs = usePlayerStore(state => state.status.position_secs);
+    const lyricsMode = useLyricsStore(state => state.lyricsMode);
 
     const activeLineIndex = useMemo(() => {
         if (!lines || lines.length === 0) return -1;
@@ -500,7 +501,7 @@ const IsolatedLyricsRenderer = React.memo(({ lines, colors }: { lines: any[] | n
             activeIndex={activeLineIndex}
             side="right"
             radius={600}
-            itemHeight={60}
+            itemHeight={lyricsMode === 'both' ? 80 : 60}
             visibleRange={5}
             renderItem={useMemo(() => (item: any, _, isActive) => (
                 <div
@@ -514,16 +515,25 @@ const IsolatedLyricsRenderer = React.memo(({ lines, colors }: { lines: any[] | n
                     }}
                     onClick={() => usePlayerStore.getState().seek(item.time)}
                 >
-                    <span
-                        className={`text-xl md:text-3xl font-bold max-w-[400px] leading-tight transition-colors duration-300`}
+                    <div
+                        className={`text-xl md:text-3xl font-bold max-w-[400px] leading-tight transition-colors duration-300 flex flex-col items-start`}
                         style={{
                             color: isActive ? colors.onSurface : colors.onSurfaceVariant,
                         }}
                     >
-                        {item.text}
-                    </span>
+                        {lyricsMode === 'romaji' ? (
+                            <span>{item.romaji || item.text}</span>
+                        ) : lyricsMode === 'both' && item.romaji ? (
+                            <>
+                                <span className="text-sm md:text-lg opacity-70 mb-1 font-medium select-none">{item.romaji}</span>
+                                <span>{item.text}</span>
+                            </>
+                        ) : (
+                            <span>{item.text}</span>
+                        )}
+                    </div>
                 </div>
-            ), [colors])}
+            ), [colors, lyricsMode])}
         />
     );
 });
