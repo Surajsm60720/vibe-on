@@ -25,6 +25,8 @@ pub enum AudioCommand {
     GetStatus(Sender<PlayerStatus>),
     Shutdown,
     SetEq(usize, f32), // band_index, gain_db
+    SetSpeed(f32),
+    SetReverb(f32, f32), // mix (0-1), decay (0-1)
 }
 
 /// Thread-safe handle to the audio player
@@ -40,7 +42,15 @@ impl AudioPlayer {
         let (command_tx, command_rx) = channel::<AudioCommand>();
         let (init_tx, init_rx) = std::sync::mpsc::sync_channel(0);
 
-        let eq_gains = Arc::new(Mutex::new(vec![0.0; 10]));
+        // Initialize gains: 10 bands + Preamp + Balance + Width + Spares
+        // 0-9: EQ
+        // 10: Preamp (0dB)
+        // 11: Balance (0.0)
+        // 12: Stereo Width (1.0 default)
+        let mut initial_gains = vec![0.0; 15];
+        initial_gains[12] = 1.0;
+
+        let eq_gains = Arc::new(Mutex::new(initial_gains));
         let eq_gains_clone = eq_gains.clone();
 
         let thread = thread::spawn(move || {
@@ -64,6 +74,8 @@ impl AudioPlayer {
             .send(AudioCommand::Play(path.to_string()))
             .map_err(|e| format!("Failed to send play command: {}", e))
     }
+
+    // ... (pause, resume, stop remain same)
 
     pub fn pause(&self) -> Result<(), String> {
         self.command_tx
@@ -95,6 +107,14 @@ impl AudioPlayer {
             .map_err(|e| format!("Failed to send seek command: {}", e))
     }
 
+    pub fn set_speed(&self, value: f32) -> Result<(), String> {
+        self.command_tx
+            .send(AudioCommand::SetSpeed(value))
+            .map_err(|e| format!("Failed to send speed command: {}", e))
+    }
+
+    // ... (rest of impl)
+
     pub fn get_status(&self) -> PlayerStatus {
         let (tx, rx) = channel();
         if self.command_tx.send(AudioCommand::GetStatus(tx)).is_ok() {
@@ -123,6 +143,20 @@ impl AudioPlayer {
         self.command_tx
             .send(AudioCommand::SetEq(band, gain))
             .map_err(|e| format!("Failed to send eq command: {}", e))
+    }
+
+    pub fn set_reverb(&self, mix: f32, decay: f32) -> Result<(), String> {
+        // Update local state indices 13 (mix) and 14 (decay)
+        if let Ok(mut gains) = self.eq_gains.lock() {
+            if gains.len() >= 15 {
+                gains[13] = mix.clamp(0.0, 1.0);
+                gains[14] = decay.clamp(0.0, 1.0);
+            }
+        }
+
+        self.command_tx
+            .send(AudioCommand::SetReverb(mix, decay))
+            .map_err(|e| format!("Failed to send reverb command: {}", e))
     }
 }
 
@@ -211,6 +245,9 @@ impl AudioThread {
                 Ok(AudioCommand::Shutdown) => {
                     break;
                 }
+                Ok(AudioCommand::SetSpeed(value)) => {
+                    audio.handle_set_speed(value);
+                }
                 Ok(AudioCommand::SetEq(band, gain)) => {
                     // Values are already updated in shared mutex by the caller usually,
                     // but if we want to be safe or if caller didn't update mutex:
@@ -219,6 +256,9 @@ impl AudioThread {
                     // But wait, the Mutex is shared between generic AudioPlayer and AudioThread.
                     // The Equalizer Struct ALSO has the Arc.
                     println!("[AudioThread] EQ changed: band {} -> {} dB", band, gain);
+                }
+                Ok(AudioCommand::SetReverb(mix, decay)) => {
+                    println!("[AudioThread] Reverb set: mix={}, decay={}", mix, decay);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     // Check if track finished
@@ -312,6 +352,8 @@ impl AudioThread {
                     album: "Unknown Album".to_string(),
                     duration_secs: 0.0,
                     cover_image: None,
+                    disc_number: None,
+                    track_number: None,
                 };
             }
         };
@@ -352,6 +394,8 @@ impl AudioThread {
             album,
             duration_secs,
             cover_image: None,
+            disc_number: None,
+            track_number: None,
         }
     }
 
@@ -390,6 +434,12 @@ impl AudioThread {
         self.volume = value.clamp(0.0, 1.0);
         if let Some(ref sink) = self.sink {
             sink.set_volume(self.volume);
+        }
+    }
+
+    fn handle_set_speed(&mut self, value: f32) {
+        if let Some(ref sink) = self.sink {
+            sink.set_speed(value);
         }
     }
 

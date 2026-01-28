@@ -8,6 +8,7 @@ import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 const BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const BAND_LABELS = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
 
+
 const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const { eqGains, setEqGain, presets, applyPreset, addPreset, activePresetId } = usePlayerStore();
 
@@ -17,10 +18,13 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         });
     };
 
-    const handleSavePreset = () => {
+    const handleSavePreset = async () => {
+        // Use a non-blocking dialog or stick to prompt for now, but ensure it works.
+        // Prompt is fine for MVP but maybe we can make it nicer later.
         const name = prompt("Enter preset name:");
         if (name) {
             addPreset(name, eqGains);
+            // Force re-render if needed, but store subscription should handle it.
         }
     };
 
@@ -30,7 +34,8 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 filters: [{
                     name: 'JSON Preset',
                     extensions: ['json']
-                }]
+                }],
+                defaultPath: 'my-preset.json'
             });
 
             if (result) {
@@ -39,10 +44,11 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     gains: eqGains
                 }, null, 2);
                 await writeTextFile(result, content);
-                alert("Preset export successful!");
+                // Use a toast or non-blocking notification if possible, revert to alert for now
+                alert("Preset exported successfully!");
             }
         } catch (e) {
-            console.error(e);
+            console.error("Export failed:", e);
             alert("Failed to export preset");
         }
     };
@@ -58,24 +64,28 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             });
 
             if (result) {
-                // plugin-dialog returns path string (or array, or null)
-                // In v2 it returns string | null for multiple: false ??
-                // Wait, result is FileResponse or string? 
-                // Actually @tauri-apps/plugin-dialog v2 returns string path directly or null.
                 const path = result as string;
+                // Note: v2 dialog returns string | null for single file
 
                 const content = await readTextFile(path);
-                const data = JSON.parse(content);
+                let data;
+                try {
+                    data = JSON.parse(content);
+                } catch (err) {
+                    alert("Invalid JSON file.");
+                    return;
+                }
 
                 if (data.gains && Array.isArray(data.gains) && data.gains.length === 10) {
-                    addPreset(data.name || "Imported Preset", data.gains);
-                    alert(`Imported "${data.name}" successfully!`);
+                    const presetName = data.name || "Imported Preset";
+                    addPreset(presetName, data.gains);
+                    alert(`Imported "${presetName}" successfully!`);
                 } else {
-                    alert("Invalid preset file format.");
+                    alert("Invalid preset format (must have 10 gain values).");
                 }
             }
         } catch (e) {
-            console.error(e);
+            console.error("Import failed:", e);
             alert("Failed to import preset: " + e);
         }
     };
@@ -96,10 +106,10 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
                 transition={{ type: "spring", duration: 0.4 }}
-                className="bg-surface-container-high border border-outline-variant/20 p-8 rounded-[2rem] shadow-elevation-3 w-[700px] pointer-events-auto"
+                className="bg-surface-container-high border border-outline-variant/20 p-8 rounded-[2rem] shadow-elevation-3 w-[800px] pointer-events-auto max-h-[90vh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="flex flex-col gap-4 mb-4">
+                <div className="flex flex-col gap-4 mb-6">
                     <div className="flex justify-between items-center">
                         <h2 className="text-title-large font-bold text-on-surface">
                             Equalizer
@@ -147,7 +157,17 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-10 gap-3 h-56 items-end pb-4">
+                {/* EQ Bands - NOW 11 Columns (Preamp + 10 Bands) */}
+                <div className="grid grid-cols-11 gap-2 h-64 items-end pb-4 pt-2">
+                    {/* Preamp Slider */}
+                    <VerticalSlider
+                        label="Preamp"
+                        value={usePlayerStore(s => s.preampDb)}
+                        onChange={usePlayerStore(s => s.setPreamp)}
+                        isPreamp={true}
+                    />
+
+                    {/* Frequency Bands */}
                     {BANDS.map((freq, index) => {
                         const gain = eqGains[index] || 0;
 
@@ -162,15 +182,65 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     })}
                 </div>
 
-                <div className="text-center text-body-small text-on-surface-variant mt-4">
-                    Adjust frequency bands from -12dB to +12dB
+                <div className="text-center text-body-small text-on-surface-variant mt-2 mb-8">
+                    Adjust Preamp and frequency bands from -12dB to +12dB
+                </div>
+
+                {/* Advanced DSP Controls - Rotary Knobs */}
+                <div className="flex justify-around items-center pt-6 border-t border-outline-variant/10">
+                    <RotaryKnob
+                        label="Stereo Width"
+                        value={usePlayerStore(s => s.stereoWidth)}
+                        min={0} max={2.0}
+                        step={0.1}
+                        format={(v) => `${(v * 100).toFixed(0)}%`}
+                        onChange={usePlayerStore(s => s.setStereoWidth)}
+                        defaultValue={1.0}
+                    />
+                    <RotaryKnob
+                        label="Balance"
+                        value={usePlayerStore(s => s.balance)}
+                        min={-1} max={1}
+                        step={0.05}
+                        format={(v) => v === 0 ? "Center" : (v < 0 ? `L ${Math.abs(v).toFixed(2)}` : `R ${Math.abs(v).toFixed(2)}`)}
+                        onChange={usePlayerStore(s => s.setBalance)}
+                        defaultValue={0.0}
+                    />
+                    <RotaryKnob
+                        label="Speed"
+                        value={usePlayerStore(s => s.speed)}
+                        min={0.5} max={2.0}
+                        step={0.05}
+                        format={(v) => `${v.toFixed(2)}x`}
+                        onChange={usePlayerStore(s => s.setSpeed)}
+                        defaultValue={1.0}
+                    />
+                    <RotaryKnob
+                        label="Reverb Mix"
+                        value={usePlayerStore(s => s.reverbMix)}
+                        min={0.0} max={1.0}
+                        step={0.05}
+                        format={(v) => `${(v * 100).toFixed(0)}%`}
+                        onChange={(val) => usePlayerStore.getState().setReverb(val, usePlayerStore.getState().reverbDecay)}
+                        defaultValue={0.0}
+                    />
+                    <RotaryKnob
+                        label="Reverb Decay"
+                        value={usePlayerStore(s => s.reverbDecay)}
+                        min={0.0} max={1.0}
+                        step={0.05}
+                        format={(v) => v.toFixed(2)}
+                        onChange={(val) => usePlayerStore.getState().setReverb(usePlayerStore.getState().reverbMix, val)}
+                        defaultValue={0.5}
+                    />
                 </div>
             </motion.div>
         </motion.div>
     );
 };
 
-const VerticalSlider = ({ label, value, onChange }: { label: string, value: number, onChange: (val: number) => void }) => {
+// Updated VerticalSlider to handle Preamp distinct styling if needed
+const VerticalSlider = ({ label, value, onChange, isPreamp = false }: { label: string, value: number, onChange: (val: number) => void, isPreamp?: boolean }) => {
     const sliderRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
@@ -229,10 +299,6 @@ const VerticalSlider = ({ label, value, onChange }: { label: string, value: numb
         setIsEditing(true);
     };
 
-    const handleEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setEditValue(e.target.value);
-    };
-
     const handleEditSubmit = () => {
         setIsEditing(false);
         const num = parseFloat(editValue);
@@ -241,11 +307,6 @@ const VerticalSlider = ({ label, value, onChange }: { label: string, value: numb
             const clamped = Math.min(Math.max(num, -12), 12);
             onChange(clamped);
         }
-        // If NaN, just revert (do nothing, effective value stays same)
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') handleEditSubmit();
     };
 
     return (
@@ -259,9 +320,9 @@ const VerticalSlider = ({ label, value, onChange }: { label: string, value: numb
                     min="-12"
                     max="12"
                     value={editValue}
-                    onChange={handleEditChange}
+                    onChange={(e) => setEditValue(e.target.value)}
                     onBlur={handleEditSubmit}
-                    onKeyDown={handleKeyDown}
+                    onKeyDown={(e) => e.key === 'Enter' && handleEditSubmit()}
                     className="w-12 text-center text-label-small font-mono bg-surface-container-highest rounded border border-primary outline-none text-on-surface"
                 />
             ) : (
@@ -279,7 +340,7 @@ const VerticalSlider = ({ label, value, onChange }: { label: string, value: numb
 
             <div
                 ref={sliderRef}
-                className="relative w-8 h-full bg-surface-container-highest rounded-full cursor-ns-resize touch-none"
+                className={`relative w-8 h-full rounded-full cursor-ns-resize touch-none ${isPreamp ? 'bg-surface-container-highest' : 'bg-surface-container-highest'}`}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
@@ -295,7 +356,7 @@ const VerticalSlider = ({ label, value, onChange }: { label: string, value: numb
                 {/* If val < 0, top is 50%, height is (-val/12)*50% */}
 
                 <div
-                    className={`absolute w-full rounded-full transition-colors duration-100 ${isDragging ? 'bg-primary' : 'bg-primary/80 group-hover:bg-primary'}`}
+                    className={`absolute w-full rounded-full transition-colors duration-100 ${isDragging ? 'bg-primary' : (isPreamp ? 'bg-tertiary' : 'bg-primary/80 group-hover:bg-primary')}`}
                     style={{
                         bottom: value >= 0 ? '50%' : `${50 - (Math.abs(value) / 24) * 100}%`,
                         height: `${(Math.abs(value) / 24) * 100}%`,
@@ -305,7 +366,7 @@ const VerticalSlider = ({ label, value, onChange }: { label: string, value: numb
 
                 {/* Handle / Thumb */}
                 <div
-                    className="absolute left-1/2 -translate-x-1/2 w-4 h-4 bg-on-primary rounded-full shadow-md pointer-events-none transition-transform duration-75"
+                    className={`absolute left-1/2 -translate-x-1/2 w-4 h-4 rounded-full shadow-md pointer-events-none transition-transform duration-75 ${isPreamp ? 'bg-on-tertiary' : 'bg-on-primary'}`}
                     style={{
                         bottom: `calc(${percent}% - 8px)`,
                         transform: isDragging ? 'translateX(-50%) scale(1.2)' : 'translateX(-50%) scale(1)'
@@ -313,7 +374,135 @@ const VerticalSlider = ({ label, value, onChange }: { label: string, value: numb
                 />
             </div>
 
-            <span className="text-label-small text-on-surface-variant font-medium">
+            <span className={`text-label-small font-medium ${isPreamp ? 'text-tertiary' : 'text-on-surface-variant'}`}>
+                {label}
+            </span>
+        </div>
+    );
+};
+
+const RotaryKnob = ({
+    label, value, min, max, step, format, onChange, defaultValue
+}: {
+    label: string,
+    value: number,
+    min: number,
+    max: number,
+    step: number,
+    format: (v: number) => string,
+    onChange: (val: number) => void,
+    defaultValue: number
+}) => {
+    const [isDragging, setIsDragging] = useState(false);
+    const startY = useRef<number>(0);
+    const startVal = useRef<number>(0);
+
+    // Calculate rotation angle
+    // Map min..max to -135deg .. +135deg (270 degree range)
+    const range = max - min;
+    const normalized = (value - min) / range; // 0..1
+    const angle = (normalized * 270) - 135;
+
+    const handlePointerDown = (e: React.PointerEvent) => {
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setIsDragging(true);
+        startY.current = e.clientY;
+        startVal.current = value;
+    };
+
+    const handlePointerMove = (e: React.PointerEvent) => {
+        if (!isDragging) return;
+        e.preventDefault();
+
+        // Drag Sensitivity
+        const deltaY = startY.current - e.clientY;
+        // 100 pixels = full range?
+        const pixelRange = 200;
+        const deltaVal = (deltaY / pixelRange) * range;
+
+        let newVal = startVal.current + deltaVal;
+        // Clamp
+        newVal = Math.min(Math.max(newVal, min), max);
+
+        // Step quantization
+        if (step > 0) {
+            newVal = Math.round(newVal / step) * step;
+        }
+
+        onChange(newVal);
+    };
+
+    const handleDoubleClick = () => {
+        onChange(defaultValue);
+    }
+
+    return (
+        <div className="flex flex-col items-center gap-2 select-none group">
+            {/* Value text above */}
+            <div className="h-5 text-label-medium font-mono text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                {format(value)}
+            </div>
+
+            <div
+                className="relative w-16 h-16 cursor-ns-resize"
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={(e) => {
+                    setIsDragging(false);
+                    e.currentTarget.releasePointerCapture(e.pointerId);
+                }}
+                onDoubleClick={handleDoubleClick}
+                title="Double click to reset"
+            >
+                {/* Background Track Circle */}
+                <svg width="64" height="64" viewBox="0 0 64 64" className="transform -rotate-90">
+                    <circle
+                        cx="32" cy="32" r="28"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                        className="text-surface-container-highest"
+                        strokeDasharray={`${2 * Math.PI * 28 * 0.75} ${2 * Math.PI * 28 * 0.25}`}
+                    // Dasharray for 270 degrees 
+                    />
+                    {/* Active Arc */}
+                    <circle
+                        cx="32" cy="32" r="28"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                        className="text-primary"
+                        strokeDasharray={`${2 * Math.PI * 28}`}
+                        strokeDashoffset={`${2 * Math.PI * 28 * (1 - (normalized * 0.75))}`}
+                        // This math is tricky for SVG arcs. 
+                        // Let's simplify: simple knob with visual marker is easier than SVG arc math for quick tasks.
+                        // But SVG arc looks premium.
+                        // Circumference C = 175.9
+                        // Visible arc 75% = 132
+                        // Offset starts at 0 (full) to 132 (empty).
+                        // if value is 0 (min), offset should be 132 (hidden).
+                        // if value is 1 (max), offset should be 0 (full).
+                        strokeLinecap="round"
+                        style={{
+                            strokeDasharray: `${2 * Math.PI * 28 * 0.75} ${2 * Math.PI * 28}`,
+                            strokeDashoffset: (2 * Math.PI * 28 * 0.75) * (1 - normalized)
+                        }}
+                    />
+                </svg>
+
+                {/* Knob body (invisible trigger or center) */}
+
+                {/* Marker (Dot) */}
+                <div
+                    className="absolute top-0 left-0 w-full h-full pointer-events-none flex items-center justify-center"
+                    style={{ transform: `rotate(${angle}deg)` }}
+                >
+                    <div className="absolute top-[8px] w-1.5 h-1.5 bg-on-primary rounded-full shadow-sm" />
+                </div>
+            </div>
+
+            <span className="text-label-small font-medium text-on-surface-variant">
                 {label}
             </span>
         </div>

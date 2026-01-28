@@ -211,8 +211,7 @@ impl DatabaseManager {
             let added_at_str: Option<String> = row.get(6).ok();
             // Simple conversion or ignore
             let added_at = if let Some(_s) = added_at_str {
-                // parse or just use 0
-                Some(0)
+                Some(_s)
             } else {
                 None
             };

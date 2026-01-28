@@ -19,6 +19,8 @@ export function ImmersiveView() {
     const queue = usePlayerStore(s => s.queue);
     const error = usePlayerStore(s => s.error);
     const isLoading = usePlayerStore(s => s.isLoading);
+    const favorites = usePlayerStore(s => s.favorites);
+    const toggleFavorite = usePlayerStore(s => s.toggleFavorite);
 
     // Actions
     const toggleImmersiveMode = usePlayerStore(s => s.toggleImmersiveMode);
@@ -227,9 +229,13 @@ export function ImmersiveView() {
 
                         {/* ROTATING Album Art - Maximized */}
                         <motion.div
-                            className="w-full h-full rounded-full overflow-hidden shadow-2xl relative z-10 bg-black"
+                            className="w-full h-full rounded-full overflow-hidden shadow-2xl relative z-10 bg-black group cursor-pointer"
                             animate={{ rotate: isPlaying ? 360 : 0 }}
                             transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (activeTrack) toggleFavorite(activeTrack.path);
+                            }}
                         >
                             {coverUrl ? (
                                 <img src={coverUrl} alt="Album Art" className="w-full h-full object-cover" />
@@ -238,7 +244,52 @@ export function ImmersiveView() {
                                     <IconMusicNote size={150} />
                                 </div>
                             )}
+
+                            {/* Favorite Overlay - Rotates WITH the art, so we need to counter-rotate or place outside? 
+                                If we place inside, the heart spins. We should place it OUTSIDE the rotating div but INSIDE the container. 
+                                Actually, the user asked for "hovering over the now playing album art".
+                                If the art spins, the heart will spin if inside. 
+                                Better to place this overlay as a sibling to the rotating div, but absolutely positioned over it.
+                            */}
                         </motion.div>
+
+                        {/* Hover Overlay (Static) */}
+                        <div
+                            className="absolute inset-0 z-20 rounded-full flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (activeTrack) toggleFavorite(activeTrack.path);
+                            }}
+                        >
+                            <AnimatePresence mode="wait">
+                                {activeTrack && favorites.has(activeTrack.path) ? (
+                                    <motion.div
+                                        key="fav-filled"
+                                        initial={{ scale: 0.5, opacity: 0 }}
+                                        animate={{ scale: 1, opacity: 1 }}
+                                        exit={{
+                                            scale: 1.5,
+                                            opacity: 0,
+                                            rotate: [-10, 10, -10, 10, 0],
+                                            filter: "blur(4px)"
+                                        }}
+                                        transition={{ duration: 0.3 }}
+                                    >
+                                        <IconHeart size={64} filled={true} className="text-error" />
+                                    </motion.div>
+                                ) : (
+                                    <motion.div
+                                        key="fav-outline"
+                                        initial={{ scale: 0.8, opacity: 0 }}
+                                        animate={{ scale: 1, opacity: 1 }}
+                                        exit={{ scale: 0.5, opacity: 0 }}
+                                        transition={{ duration: 0.2 }}
+                                    >
+                                        <IconHeart size={64} filled={false} className="text-white" />
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
 
                         {/* PROGRESS RING */}
                         <div className="absolute inset-[-15%] z-20 flex items-center justify-center">
@@ -291,14 +342,6 @@ export function ImmersiveView() {
                             title="Next"
                         >
                             <IconNext size={24} />
-                        </button>
-                        <button
-                            onClick={() => usePlayerStore.getState().toggleFavorite(activeTrack?.path || '')}
-                            className="p-2 opacity-70 hover:opacity-100 transition-opacity hover:scale-110 active:scale-95"
-                            style={{ color: usePlayerStore.getState().isFavorite(activeTrack?.path || '') ? colors.tertiary : colors.onSurfaceVariant }}
-                            title="Favorite"
-                        >
-                            <IconHeart size={18} filled={usePlayerStore.getState().isFavorite(activeTrack?.path || '')} />
                         </button>
                     </div>
 

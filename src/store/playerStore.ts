@@ -98,6 +98,20 @@ interface PlayerStore {
 
     // Autoplay Helpers
     playRandomAlbum: () => Promise<void>;
+
+    // Advanced DSP
+    preampDb: number;
+    balance: number; // -1.0 (Left) to 1.0 (Right)
+    stereoWidth: number; // 0.0 (Mono) to 2.0 (Wide), Default 1.0
+    speed: number; // 0.5 to 2.0, Default 1.0
+    reverbMix: number;
+    reverbDecay: number;
+
+    setPreamp: (val: number) => void;
+    setBalance: (balance: number) => void;
+    setStereoWidth: (val: number) => void;
+    setSpeed: (speed: number) => void;
+    setReverb: (mix: number, decay: number) => void;
 }
 
 // --- Default Presets ---
@@ -168,6 +182,9 @@ export const usePlayerStore = create<PlayerStore>()(
             showEq: false,
             presets: DEFAULT_PRESETS,
             activePresetId: 'flat',
+
+            reverbMix: 0.0,
+            reverbDecay: 0.5,
 
             // Immersive Mode
             immersiveMode: false,
@@ -689,6 +706,32 @@ export const usePlayerStore = create<PlayerStore>()(
                     await playQueue(albumTracks, 0);
                 }
             },
+            // Advanced DSP Defaults
+            preampDb: 0,
+            balance: 0,
+            stereoWidth: 1.0,
+            speed: 1.0,
+
+            setPreamp: (val: number) => {
+                set({ preampDb: val });
+                invoke('set_eq', { band: 10, gain: val }).catch(console.error);
+            },
+            setBalance: (val: number) => {
+                set({ balance: val });
+                invoke('set_eq', { band: 11, gain: val }).catch(console.error);
+            },
+            setStereoWidth: (val: number) => {
+                set({ stereoWidth: val });
+                invoke('set_eq', { band: 12, gain: val }).catch(console.error);
+            },
+            setSpeed: (val: number) => {
+                set({ speed: val });
+                invoke('set_speed', { value: val }).catch(console.error);
+            },
+            setReverb: (mix: number, decay: number) => {
+                set({ reverbMix: mix, reverbDecay: decay });
+                invoke('set_reverb', { mix, decay }).catch(console.error);
+            },
         }),
         {
             name: 'vibe-player-storage',
@@ -697,14 +740,21 @@ export const usePlayerStore = create<PlayerStore>()(
                 playCounts: state.playCounts,
                 favorites: Array.from(state.favorites),
                 folders: state.folders,
-                // Persist Queue? Yes
                 queue: state.queue,
                 originalQueue: state.originalQueue,
                 isShuffled: state.isShuffled,
                 eqGains: state.eqGains,
                 presets: state.presets,
                 activePresetId: state.activePresetId,
-                savedVolume: state.savedVolume, // Persist volume from upstream
+                savedVolume: state.savedVolume,
+                // Persist DSP
+                // Persist DSP
+                preampDb: state.preampDb,
+                balance: state.balance,
+                stereoWidth: state.stereoWidth,
+                speed: state.speed,
+                reverbMix: state.reverbMix,
+                reverbDecay: state.reverbDecay,
             }),
             merge: (persistedState: any, currentState) => ({
                 ...currentState,
@@ -717,12 +767,23 @@ export const usePlayerStore = create<PlayerStore>()(
                 eqGains: persistedState?.eqGains || Array(10).fill(0),
                 activePresetId: persistedState?.activePresetId || 'flat',
                 savedVolume: persistedState?.savedVolume ?? 1.0,
+                // DSP Merge
+                preampDb: persistedState?.preampDb ?? 0,
+                balance: persistedState?.balance ?? 0,
+                stereoWidth: persistedState?.stereoWidth ?? 1.0,
+                speed: persistedState?.speed ?? 1.0,
+                reverbMix: persistedState?.reverbMix ?? 0.0,
+                reverbDecay: persistedState?.reverbDecay ?? 0.5,
+
                 // Merge logic for presets:
                 // 1. Keep all DEFAULT_PRESETS (updates built-ins)
                 // 2. Keep any persisted presets that are NOT in DEFAULT_PRESETS (custom user presets)
                 presets: (() => {
                     const persisted = (persistedState?.presets || []) as EqPreset[];
-                    const customPresets = persisted.filter(p => !DEFAULT_PRESETS.some(d => d.id === p.id));
+                    // Identify persisted presets that are NOT defaults (by ID check or Name check)
+                    // We assume IDs 'flat', 'rock', etc. are reserved for defaults.
+                    const defaultIds = new Set(DEFAULT_PRESETS.map(d => d.id));
+                    const customPresets = persisted.filter(p => !defaultIds.has(p.id));
                     return [...DEFAULT_PRESETS, ...customPresets];
                 })(),
             })

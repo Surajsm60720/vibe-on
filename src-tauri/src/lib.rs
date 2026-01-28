@@ -1261,6 +1261,26 @@ async fn search_torrents(
     torrent::search::search_nyaa(query, sort_by, sort_order).await
 }
 
+#[tauri::command]
+fn set_speed(value: f32, state: State<AppState>) -> Result<(), String> {
+    let player_guard = state.player.lock().unwrap();
+    if let Some(ref player) = *player_guard {
+        player.set_speed(value)
+    } else {
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn set_reverb(mix: f32, decay: f32, state: State<AppState>) -> Result<(), String> {
+    let player_guard = state.player.lock().unwrap();
+    if let Some(ref player) = *player_guard {
+        player.set_reverb(mix, decay)
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -1330,6 +1350,8 @@ pub fn run() {
             search_torrents,
             // Equalizer
             set_eq,
+            set_speed,
+            set_reverb,
         ])
         .setup(|_app| {
             // Initialize Windows Media Controls with the main window handle

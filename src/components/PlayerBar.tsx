@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { usePlayerStore } from '../store/playerStore';
-import { useLyricsStore } from '../store/lyricsStore';
 import { useCoverArt } from '../hooks/useCoverArt';
 import { useSettingsStore } from '../store/settingsStore';
 import { SquigglySlider } from './SquigglySlider';
@@ -16,7 +15,6 @@ import {
     IconVolume,
     IconMusicNote,
     IconShuffle,
-    IconQueue
 } from './Icons';
 
 // Repeat icon component
@@ -33,9 +31,9 @@ function IconRepeat({ size = 24, mode = 'off' }: { size?: number; mode?: 'off' |
 }
 
 // Heart icon for favorites
-function IconHeart({ size = 24, filled = false }: { size?: number; filled?: boolean }) {
+function IconHeart({ size = 24, filled = false, className }: { size?: number; filled?: boolean; className?: string }) {
     return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+        <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" className={className}>
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
         </svg>
     );
@@ -91,7 +89,7 @@ export function PlayerBar() {
     const {
         status, pause, resume, setVolume, refreshStatus, nextTrack, prevTrack,
         getCurrentTrackIndex, library, playFile, seek, repeatMode, cycleRepeatMode,
-        error, setError, isShuffled, toggleShuffle
+        error, setError, isShuffled, toggleShuffle, favorites, toggleFavorite
     } = usePlayerStore();
     const { albumArtStyle, expandedArtMode } = useSettingsStore();
     const { state, track, position_secs, volume } = status;
@@ -206,7 +204,7 @@ export function PlayerBar() {
             </AnimatePresence>
 
             {/* Container for Pill and Side Buttons */}
-            <div className="flex items-center justify-center gap-6 w-full px-4">
+            <div className="flex items-center justify-center gap-6 w-full px-8">
                 {/* Previous Button */}
                 <AnimatePresence mode="popLayout">
                     {!isHovered && (
@@ -226,10 +224,10 @@ export function PlayerBar() {
                     onMouseLeave={handleMouseLeave}
                     initial={false}
                     animate={{
-                        width: isHovered ? '90%' : '20rem',
+                        width: isHovered ? '100%' : '25rem',
                         height: isHovered ? '6rem' : '4.5rem',
                         borderRadius: '9999px',
-                        maxWidth: isHovered ? '56rem' : '20rem',
+                        maxWidth: isHovered ? '100%' : '23rem',
                         backgroundColor: isHovered
                             ? 'rgba(0,0,0,0.4)'
                             : 'var(--md-sys-color-surface-container-high)',
@@ -249,7 +247,7 @@ export function PlayerBar() {
                     flex items-center
                     backdrop-blur-xl
                     border
-                    ${isHovered ? 'px-8 py-4 gap-8' : 'px-5 py-3 gap-5'}
+                    ${isHovered ? 'px-4 py-4 gap-8' : 'px-3 py-3 gap-5'}
                 `}
                 >
                     {/* Background Art Overlay (Expanded Mode - Smoother Bleed) */}
@@ -359,9 +357,13 @@ export function PlayerBar() {
                                     {expandedArtMode === 'pill' && (
                                         <div
                                             className={`
-                                            relative shrink-0 overflow-hidden bg-surface-container-low shadow-sm transition-all duration-300
+                                            relative shrink-0 overflow-hidden bg-surface-container-low shadow-sm transition-all duration-300 group cursor-pointer
                                             ${albumArtStyle === 'vinyl' ? 'w-16 h-16 rounded-full' : 'w-16 h-16 rounded-xl'}
                                         `}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (track) toggleFavorite(track.path);
+                                            }}
                                         >
                                             {activeCoverUrl ? (
                                                 <img
@@ -384,6 +386,38 @@ export function PlayerBar() {
                                                     <div className="w-4 h-4 bg-surface-container-high rounded-full border border-surface-container-low/50" />
                                                 </div>
                                             )}
+
+                                            {/* Favorite Overlay */}
+                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                                <AnimatePresence mode="wait">
+                                                    {track && favorites.has(track.path) ? (
+                                                        <motion.div
+                                                            key="fav-filled"
+                                                            initial={{ scale: 0.5, opacity: 0 }}
+                                                            animate={{ scale: 1, opacity: 1 }}
+                                                            exit={{
+                                                                scale: 1.5,
+                                                                opacity: 0,
+                                                                rotate: [-10, 10, -10, 10, 0], // Shake/Break effect
+                                                                filter: "blur(4px)"
+                                                            }}
+                                                            transition={{ duration: 0.3 }}
+                                                        >
+                                                            <IconHeart size={28} filled={true} className="text-error" />
+                                                        </motion.div>
+                                                    ) : (
+                                                        <motion.div
+                                                            key="fav-outline"
+                                                            initial={{ scale: 0.8, opacity: 0 }}
+                                                            animate={{ scale: 1, opacity: 1 }}
+                                                            exit={{ scale: 0.5, opacity: 0 }}
+                                                            transition={{ duration: 0.2 }}
+                                                        >
+                                                            <IconHeart size={28} filled={false} className="text-white" />
+                                                        </motion.div>
+                                                    )}
+                                                </AnimatePresence>
+                                            </div>
                                         </div>
                                     )}
 
@@ -453,19 +487,6 @@ export function PlayerBar() {
                                         </button>
                                     )}
 
-                                    {/* Favorite Button */}
-                                    {track && (
-                                        <button
-                                            onClick={() => usePlayerStore.getState().toggleFavorite(track.path)}
-                                            className={`p-2 rounded-full transition-colors ${usePlayerStore.getState().isFavorite(track.path)
-                                                ? 'text-error'
-                                                : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest'
-                                                }`}
-                                            title={usePlayerStore.getState().isFavorite(track.path) ? 'Remove from Favorites' : 'Add to Favorites'}
-                                        >
-                                            <IconHeart size={22} filled={usePlayerStore.getState().isFavorite(track.path)} />
-                                        </button>
-                                    )}
 
                                     {/* Shuffle Button */}
                                     <button
@@ -489,18 +510,6 @@ export function PlayerBar() {
                                         title={`Repeat: ${repeatMode === 'off' ? 'Off' : repeatMode === 'all' ? 'All' : 'One'}`}
                                     >
                                         <IconRepeat size={22} mode={repeatMode} />
-                                    </button>
-
-                                    {/* Queue Toggle Button */}
-                                    <button
-                                        onClick={() => useLyricsStore.getState().toggleLyrics()}
-                                        className={`p-2 rounded-full transition-colors ${!useLyricsStore.getState().showLyrics
-                                            ? 'bg-primary-container text-on-primary-container'
-                                            : 'text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface'
-                                            }`}
-                                        title={useLyricsStore.getState().showLyrics ? "Show Queue" : "Show Lyrics"}
-                                    >
-                                        <IconQueue size={22} />
                                     </button>
 
                                     <div className="flex items-center gap-2 group relative">
@@ -554,12 +563,11 @@ export function PlayerBar() {
                                 </div>
 
                                 {/* Text Info */}
-                                <div className="flex-1 min-w-0 flex items-center gap-2 overflow-hidden z-10">
-                                    <div className="text-label-large font-bold truncate text-on-surface">
+                                <div className="flex-1 min-w-0 flex flex-col justify-center overflow-hidden z-10">
+                                    <div className="text-label-large font-bold truncate text-on-surface w-full">
                                         <MarqueeText text={track?.title || "Not Playing"} />
                                     </div>
-                                    <span className="text-on-surface-variant text-label-medium">•</span>
-                                    <div className="text-label-medium text-on-surface-variant truncate max-w-[100px]">
+                                    <div className="text-label-small text-on-surface-variant truncate w-full">
                                         {track?.artist || "Artist"}
                                     </div>
                                 </div>

@@ -1,3 +1,4 @@
+use super::reverb::Freeverb;
 use rodio::Source;
 use std::f32::consts::PI;
 use std::sync::{Arc, Mutex};
@@ -131,6 +132,9 @@ impl BiquadFilter {
     }
 }
 
+// ... (previous imports)
+
+// Add new fields to Equalizer struct
 pub struct Equalizer<I>
 where
     I: Source<Item = f32>,
@@ -138,12 +142,30 @@ where
     input: I,
     filters: Vec<Vec<BiquadFilter>>,
     gains: Arc<Mutex<Vec<f32>>>,
+    // New DSP params (using Arc<Mutex> for thread safety if updated dynamically)
+    // For simplicity, we can read them from the same gains Vector? No, stick to separate or extend vector.
+    // Let's extend the shared vector? Or add a new struct.
+    // The user wants "Preamp, Balance, etc."
+    // Let's define specific indices in the gains vector?
+    // Current gains vector is 10 bands.
+    // We can add "extra" slots at the end (10 -> Preamp, 11 -> Balance, 12 -> Width).
+    // This is the easiest way without changing the signature too much.
+    // Indices:
+    // 0-9: EQ Bands
+    // 10: Preamp (dB)
+    // 11: Balance (-1.0 Left to 1.0 Right)
+    // 12: Stereo Width (0.0 Mono to 1.0 Normal to 2.0+ Wide)
+    // 13+: Future?
     sample_rate: u32,
     channels: u16,
     current_channel: usize,
     frequencies: [f32; 10],
     cached_gains: Vec<f32>,
     update_counter: usize,
+
+    // Buffering for Stereo Process
+    pending_sample: Option<f32>,
+    reverb: Freeverb,
 }
 
 impl<I> Equalizer<I>
@@ -175,6 +197,10 @@ where
             filters.push(channel_filters);
         }
 
+        // Initialize cached gains with enough space for extended params
+        // Default size is 10, but we want up to 15 to be safe.
+        // We will resize cached_gains in recalculate if needed.
+        // Or simply force it here.
         let mut eq = Self {
             input,
             filters,
@@ -183,8 +209,10 @@ where
             channels,
             current_channel: 0,
             frequencies,
-            cached_gains: vec![0.0; 10],
+            cached_gains: vec![0.0; 15],
             update_counter: 0,
+            pending_sample: None,
+            reverb: Freeverb::new(sample_rate as u32),
         };
 
         eq.recalculate_coeffs();
@@ -193,31 +221,33 @@ where
 
     fn recalculate_coeffs(&mut self) {
         if let Ok(gains) = self.gains.lock() {
-            if gains.len() == 10 {
-                // Check if actually changed to avoid spam?
-                // Caller checks before calling, but we update cached_gains here.
-                if self.cached_gains != *gains {
-                    println!("[Equalizer] Updating gains: {:?}", gains);
-                    self.cached_gains = gains.clone();
+            // Check if different. Gains might be 10 or more.
+            // We only care about first 10 for EQ, others for DSP.
+            // Just copy what we have.
+            if gains.len() >= 10 {
+                // Ensure cached_gains is large enough
+                if self.cached_gains.len() < gains.len() {
+                    self.cached_gains.resize(gains.len(), 0.0);
+                }
+
+                // Copy all
+                for (i, &g) in gains.iter().enumerate() {
+                    self.cached_gains[i] = g;
                 }
             }
         }
 
-        // Q Factor: Lower Q = Wider Bandwidth.
-        // 1.0 is a reasonable balance for peaking filters.
         let q = 1.0;
-
+        // Update Filters (Only first 10 params)
         for channel_idx in 0..self.channels as usize {
             for (band_idx, filter) in self.filters[channel_idx].iter_mut().enumerate() {
-                // For Shelving filters, Q is usually different (0.707 for Butterworth slope).
-                // But reusing q=1.0 is acceptable or we can pass slope.
-                // Our update_coeffs handles shelves using alpha derived from Q.
-                filter.update_coeffs(
-                    self.frequencies[band_idx],
-                    self.sample_rate,
-                    self.cached_gains[band_idx],
-                    q,
-                );
+                let gain = if band_idx < self.cached_gains.len() {
+                    self.cached_gains[band_idx]
+                } else {
+                    0.0
+                };
+
+                filter.update_coeffs(self.frequencies[band_idx], self.sample_rate, gain, q);
             }
         }
     }
@@ -230,37 +260,140 @@ where
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Handle pending sample from stereo pair
+        if let Some(sample) = self.pending_sample.take() {
+            return Some(sample);
+        }
+
         self.update_counter += 1;
         if self.update_counter > 1000 {
-            let mut changed = false;
-            if let Ok(lock) = self.gains.try_lock() {
-                if *lock != self.cached_gains {
-                    changed = true;
-                }
-            }
-            if changed {
-                self.recalculate_coeffs();
-            }
+            // Simplified check: Just recalculate every now and then or check lock
+            // Optimization: Only lock if we suspect change? No, polling is fine for audio thread
+            // if lock contention is low. 1000 samples is ~20ms at 48k. Good enough.
+            self.recalculate_coeffs();
             self.update_counter = 0;
         }
 
-        let sample = self.input.next()?;
+        // --- Fetch Samples ---
+        let mut left = self.input.next()?;
 
-        // No conversion needed, sample is f32
-        let mut processed_sample = sample;
+        // If Stereo, fetch right immediately for DSP
+        let mut right = if self.channels == 2 {
+            match self.input.next() {
+                Some(s) => s,
+                None => return Some(left), // Should not happen easily but safety
+            }
+        } else {
+            0.0 // Dummy for mono logic if needed, but mono logic branches
+        };
 
-        if self.current_channel < self.filters.len() {
-            let channel_filters = &mut self.filters[self.current_channel];
-            for filter in channel_filters.iter_mut() {
-                processed_sample = filter.process(processed_sample);
+        // --- EQ Processing ---
+        // Apply Filters to Left
+        // Note: current_channel tracking logic in original code was:
+        // 1 sample -> process channel 0 -> increment
+        // 1 sample -> process channel 1 -> increment
+        // But here we pulled TWO samples if stereo.
+        // So we process channel 0 for left, channel 1 for right.
+
+        if self.channels == 2 {
+            // Process Left (Channel 0)
+            if 0 < self.filters.len() {
+                for filter in self.filters[0].iter_mut() {
+                    left = filter.process(left);
+                }
+            }
+            // Process Right (Channel 1)
+            if 1 < self.filters.len() {
+                for filter in self.filters[1].iter_mut() {
+                    right = filter.process(right);
+                }
+            }
+        } else {
+            // Mono / Multi-channel generic fallback (old logic)
+            // If mono, we just have 'left'.
+            if self.current_channel < self.filters.len() {
+                for filter in self.filters[self.current_channel].iter_mut() {
+                    left = filter.process(left);
+                }
+            }
+            // Update channel pointer for next call
+            self.current_channel = (self.current_channel + 1) % (self.channels as usize);
+            return Some(left);
+        }
+
+        // --- Extended DSP Effects ---
+        // Indices: 10: Preamp, 11: Balance, 12: Stereo Width
+
+        // 1. Preamp (Gain)
+        let preamp_db = *self.cached_gains.get(10).unwrap_or(&0.0);
+        if preamp_db != 0.0 {
+            let factor = 10.0f32.powf(preamp_db / 20.0);
+            left *= factor;
+            right *= factor;
+        }
+
+        // 2. Stereo Width (Mid-Side)
+        // Default 1.0 (Normal). 0.0 (Mono). >1.0 (Wide).
+        // If param missing, default to 0.0? No, default should be 1.0?
+        // We initialized vector to 0.0.
+        // Wait, if default vector is 0s, Preamp=0dB, Balance=0 (Center), Width=0 (MONO?!).
+        // Problem: Width 0.0 implies Mono. We want "Normal" to be 0 for UI slider?
+        // Or we map UI 0..1..2 to 0..1..2?
+        // Let's adopt UI standard:
+        // Slider 0 (center) -> Effect 1.0 (Normal) ?
+        // Or Slider 0% -> Mono, 50% -> Normal, 100% -> Wide?
+        // Let's assume the parameter stored is the raw factor.
+        // We need to ensure default in Store is 1.0 for Width.
+        let width_factor = *self.cached_gains.get(12).unwrap_or(&1.0);
+
+        if (width_factor - 1.0).abs() > 0.01 {
+            let mid = (left + right) * 0.5;
+            let side = (left - right) * 0.5;
+            let new_side = side * width_factor;
+            left = mid + new_side;
+            right = mid - new_side;
+        }
+
+        // 3. Balance
+        // -1.0 (Left) to 1.0 (Right). 0.0 Center.
+        let balance = *self.cached_gains.get(11).unwrap_or(&0.0);
+        if balance != 0.0 {
+            // Pan law: Constant Power or Linear?
+            // Simple linear for MVP:
+            // If < 0 (Left biased): Left 1.0, Right 1.0+bal (decays to 0)
+            if balance < 0.0 {
+                right *= 1.0 + balance; // balance is negative
+            } else {
+                left *= 1.0 - balance;
             }
         }
 
-        self.current_channel = (self.current_channel + 1) % (self.channels as usize);
+        // 4. Reverb
+        // Indices: 13: Mix (0.0 - 1.0), 14: Decay (0.0 - 1.0)
+        let reverb_mix = *self.cached_gains.get(13).unwrap_or(&0.0);
+        let reverb_decay = *self.cached_gains.get(14).unwrap_or(&0.5);
 
-        Some(processed_sample)
+        if reverb_mix > 0.0 {
+            // Update params only if changed (simple check usually ok, or update always as it's cheap setter)
+            self.reverb.set_room_size(reverb_decay);
+            self.reverb.set_wet(reverb_mix);
+            self.reverb.set_dry(1.0 - (reverb_mix * 0.5)); // Slight dry dip when wet increases? Or keep dry 1.0?
+                                                           // Freeverb usually mixes wet + dry. Let's keep dry constant or linear.
+                                                           // set_dry(1.0) keeps original signal strong.
+            self.reverb.set_dry(1.0);
+
+            let (rev_l, rev_r) = self.reverb.process(left, right);
+            left = rev_l;
+            right = rev_r;
+        }
+
+        // --- Output ---
+        self.pending_sample = Some(right);
+        Some(left)
     }
 }
+
+// ... (Source implementation remains same)
 
 impl<I> Source for Equalizer<I>
 where
