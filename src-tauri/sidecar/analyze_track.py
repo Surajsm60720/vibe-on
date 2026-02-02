@@ -16,6 +16,25 @@ import sys
 import os
 
 def main():
+    # Argument Handling
+    # Check if we should default to Librosa (Windows) or if Essentia is available
+    essentia_available = False
+    if sys.platform != "win32": # On Windows, skip Essentia as requested
+        try:
+            import essentia
+            import essentia.standard as es
+            essentia_available = True
+        except ImportError:
+            pass
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--check":
+        print(json.dumps({
+            "available": True,
+            "engine": "essentia" if essentia_available else "librosa",
+            "essentia_version":  essentia.__version__ if essentia_available else None
+        }))
+        sys.exit(0)
+
     if len(sys.argv) < 2:
         print(json.dumps({"error": "No audio file path provided"}))
         sys.exit(3)
@@ -27,15 +46,21 @@ def main():
         print(json.dumps({"error": f"File not found: {audio_path}"}))
         sys.exit(1)
 
-    try:
-        import essentia
-        import essentia.standard as es
-    except ImportError as e:
-        print(json.dumps({"error": f"Essentia not installed: {e}"}))
-        sys.exit(4)
+    # Validation: If neither is available
+    if not essentia_available:
+        try:
+            import librosa
+            import numpy as np
+        except ImportError:
+             print(json.dumps({"error": "Neither Essentia nor Librosa installed"}))
+             sys.exit(4)
 
     try:
-        # Load audio
+        if not essentia_available:
+            # Skip directly to librosa fallback
+            raise ImportError("Essentia not available, using Librosa")
+            
+        # Load audio with Essentia
         loader = es.MonoLoader(filename=audio_path)
         audio = loader()
 
@@ -119,8 +144,97 @@ def main():
         sys.exit(0)
 
     except Exception as e:
-        print(json.dumps({"error": str(e)}))
-        sys.exit(3)
+        # Fallback to Librosa if Essentia runtime failed OR wasn't available
+        # We try Librosa in either case
+        try:
+            # Only log if we are falling back from a crash
+            if essentia_available:
+                # print(json.dumps({"warning": f"Essentia failed, falling back: {str(e)}"}))
+                # Don't pollute stdout with warning if we want clean JSON, but debugging helps.
+                # Actually, standard output should be strict JSON for the caller.
+                # We can print to stderr.
+                sys.stderr.write(f"Essentia failed: {e}\nFalling back to Librosa.\n")
+                pass
+
+            import librosa
+            import numpy as np
+            
+            y, sr = librosa.load(audio_path)
+            
+            # BPM
+            tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+            bpm = float(tempo)
+            
+            # Features
+            rms_val = float(np.mean(librosa.feature.rms(y=y)))
+            sc = float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)))
+            zcr = float(np.mean(librosa.feature.zero_crossing_rate(y=y)))
+            
+            # Chromagram for key/mode detection
+            chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+            chroma_mean = np.mean(chroma, axis=1)
+            
+            # Estimate if song is in minor or major mode
+            # Major/minor templates (Krumhansl-Schmuckler profiles simplified)
+            major_profile = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+            minor_profile = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+            
+            # Normalize profiles and chroma
+            major_profile = major_profile / np.sum(major_profile)
+            minor_profile = minor_profile / np.sum(minor_profile)
+            chroma_norm = chroma_mean / (np.sum(chroma_mean) + 1e-8)
+            
+            # Correlation with profiles
+            major_corr = np.corrcoef(chroma_norm, major_profile)[0, 1]
+            minor_corr = np.corrcoef(chroma_norm, minor_profile)[0, 1]
+            is_major = major_corr > minor_corr
+            mode_confidence = abs(major_corr - minor_corr)
+            
+            # Spectral rolloff (darker = sadder)
+            rolloff = float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr)))
+            darkness = max(0, 1.0 - rolloff / (sr / 2))  # Lower rolloff = darker
+            
+            # Approximations (Mirroring Essentia logic)
+            danceability = min(1.0, max(0, 1 - abs(bpm - 120) / 60)) # Naive
+            energy = min(1.0, max(0.0, (rms_val * 10 + sc / 5000) / 2))
+            
+            # IMPROVED Valence calculation
+            # Components:
+            # - Tempo: slower = sadder (but not too heavily weighted)
+            # - Mode: minor = sadder
+            # - Brightness: darker timbre = sadder
+            # - Energy: lower energy can indicate sadness
+            tempo_factor = min(1.0, bpm / 140)  # Normalize tempo (140 BPM = neutral)
+            mode_factor = 0.65 if is_major else 0.20  # Major boost vs minor penalty
+            brightness_factor = min(1.0, sc / 3000)  # Spectral centroid brightness
+            
+            valence = min(1.0, max(0.0,
+                0.25 * tempo_factor +      # 25% tempo influence
+                0.35 * mode_factor +       # 35% major/minor influence (most important!)
+                0.25 * brightness_factor + # 25% timbre brightness
+                0.15 * energy              # 15% energy
+            )) 
+            
+            result = {
+                "valence": round(valence, 4),
+                "energy": round(energy, 4),
+                "danceability": round(danceability, 4),
+                "tempo": round(bpm, 2),
+                "key": -1, # Librosa key detection is heavy/complex, skipping for pure-python/numpy speed
+                "loudness": -10.0, 
+                "instrumentalness": 0.0,
+                "acousticness": 0.0,
+                "speechiness": 0.0,
+                "liveness": 0.0,
+                "analysis_version": 1,
+                "engine": "librosa"
+            }
+            print(json.dumps(result))
+            sys.exit(0)
+        except Exception as lib_e:
+             error_msg = {"error": f"Analysis failed. Essentia: {str(e)}. Librosa: {str(lib_e)}"}
+             print(json.dumps(error_msg))
+             sys.exit(3)
 
 
 if __name__ == "__main__":

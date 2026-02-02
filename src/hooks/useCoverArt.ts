@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { usePlayerStore } from '../store/playerStore';
-
+const isWebMode = import.meta.env.VITE_APP_MODE === 'web';
 // LRU Cache configuration
 const MAX_CACHE_SIZE = 200;
 
@@ -72,6 +72,19 @@ export function useCoverArt(coverPath: string | null | undefined) {
             if (!loadPromise) {
                 // Start new load
                 loadPromise = (async () => {
+                    if (isWebMode) {
+                        try {
+                            // In Web Mode, covers are served statically.
+                            // Assuming coversDir is a URL prefix like '/covers'
+                            // and coverPath is the filename.
+                            const url = `${coversDir}/${coverPath}`.replace(/\/+/g, '/');
+                            return url;
+                        } catch (e) {
+                            console.error('Failed to construct cover URL:', e);
+                            return null;
+                        }
+                    }
+
                     try {
                         const path = `${coversDir}/${coverPath}`.replace(/\\/g, '/');
                         const data = await readFile(path);

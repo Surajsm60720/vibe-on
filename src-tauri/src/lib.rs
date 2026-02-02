@@ -6,7 +6,6 @@ mod lyrics_fetcher;
 #[cfg(target_os = "windows")]
 mod taskbar_controls;
 mod torrent;
-mod youtube_searcher;
 
 // Mood-based playback feature (isolated module for clean removal)
 mod mood;
@@ -14,12 +13,12 @@ mod mood;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 use audio::state::PlayerStatus;
 #[cfg(target_os = "windows")]
 use audio::MediaControlService;
-use audio::{AudioPlayer, MediaCmd, SearchFilter, TrackInfo, UnreleasedTrack};
+use audio::{AudioPlayer, MediaCmd, TrackInfo};
 use database::DatabaseManager;
 use discord_rpc::DiscordRpc;
 
@@ -46,7 +45,6 @@ pub struct AppState {
     discord: Arc<DiscordRpc>,
     current_cover_url: Arc<Mutex<Option<String>>>,
     media_cmd_tx: Mutex<Option<Sender<MediaCmd>>>,
-    last_rpc_update: Mutex<String>, // De-duplication key
     lyrics_cache: Arc<Mutex<CachedLyrics>>,
     torrent_manager: Arc<Mutex<Option<torrent::TorrentManager>>>,
 }
@@ -59,7 +57,6 @@ impl Default for AppState {
             discord: Arc::new(DiscordRpc::new(DISCORD_APP_ID)),
             current_cover_url: Arc::new(Mutex::new(None)),
             media_cmd_tx: Mutex::new(None),
-            last_rpc_update: Mutex::new(String::new()),
             lyrics_cache: Arc::new(Mutex::new(CachedLyrics::default())),
             torrent_manager: Arc::new(Mutex::new(None)),
         }
@@ -798,51 +795,6 @@ fn apply_lrc_file(
 }
 
 // ============================================================================
-// YouTube Music Integration
-// ============================================================================
-
-#[tauri::command]
-async fn open_yt_music(app: tauri::AppHandle, width: f64, height: f64) -> Result<(), String> {
-    use tauri::Manager;
-    use tauri::WebviewUrl;
-    use tauri::WebviewWindowBuilder;
-
-    // Check if webview already exists
-    if let Some(webview) = app.get_webview_window("ytmusic") {
-        let _ = webview.set_focus();
-        return Ok(());
-    }
-
-    let _main_window = app
-        .get_webview_window("main")
-        .ok_or("Main window not found")?;
-
-    // Create child webview attached to main window
-    // Initial size/position will be set by move_yt_window immediately after
-
-    // We update to WebviewWindowBuilder for Tauri v2 compatibility
-    #[allow(unused_mut)] // Mutable only on Windows
-    let mut builder = WebviewWindowBuilder::new(
-        &app,
-        "ytmusic",
-        WebviewUrl::External("https://music.youtube.com".parse().unwrap())
-    )
-    .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-    .devtools(true)
-    .initialization_script(include_str!("yt_inject.js"))
-    .inner_size(width, height)
-    .visible(false); // Start hidden
-
-    #[cfg(target_os = "windows")]
-    {
-        builder = builder.parent(&_main_window).map_err(|e| e.to_string())?;
-    }
-
-    builder.build().map_err(|e| e.to_string())?;
-
-    Ok(())
-}
-
 // ============================================================================
 // Torrent Integration
 // ============================================================================
@@ -1021,234 +973,6 @@ async fn resume_torrent(id: usize, state: State<'_, AppState>) -> Result<(), Str
 }
 
 // ============================================================================
-// Unreleased Library Integration
-// ============================================================================
-
-#[tauri::command]
-async fn search_youtube(filter: SearchFilter) -> Result<Vec<UnreleasedTrack>, String> {
-    // Run in blocking thread as reqwest::blocking is used
-    tauri::async_runtime::spawn_blocking(move || youtube_searcher::search_youtube(filter))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-fn save_unreleased_track(
-    track: UnreleasedTrack,
-    state: State<AppState>,
-    app_handle: AppHandle,
-) -> Result<(), String> {
-    get_or_init_db(&state, &app_handle)?;
-    if let Some(db) = state.db.lock().unwrap().as_ref() {
-        db.insert_unreleased_track(&track)
-            .map_err(|e| e.to_string())
-    } else {
-        Err("Database not initialized".to_string())
-    }
-}
-
-#[tauri::command]
-fn remove_unreleased_track(
-    video_id: String,
-    state: State<AppState>,
-    app_handle: AppHandle,
-) -> Result<(), String> {
-    get_or_init_db(&state, &app_handle)?;
-    if let Some(db) = state.db.lock().unwrap().as_ref() {
-        db.delete_unreleased_track(&video_id)
-            .map_err(|e| e.to_string())
-    } else {
-        Err("Database not initialized".to_string())
-    }
-}
-
-#[tauri::command]
-fn get_unreleased_library(
-    state: State<AppState>,
-    app_handle: AppHandle,
-) -> Result<Vec<UnreleasedTrack>, String> {
-    get_or_init_db(&state, &app_handle)?;
-    if let Some(db) = state.db.lock().unwrap().as_ref() {
-        db.get_unreleased_tracks().map_err(|e| e.to_string())
-    } else {
-        Ok(Vec::new())
-    }
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
-pub struct YtStatus {
-    pub title: String,
-    pub artist: String,
-    pub album: String,
-    pub cover_url: String,
-    pub duration: f64,
-    pub progress: f64,
-    pub is_playing: bool,
-}
-
-#[tauri::command]
-fn update_yt_status(
-    status: YtStatus,
-    state: State<AppState>,
-    app: AppHandle,
-) -> Result<(), String> {
-    // We construct a key to check effective change.
-    // Including is_playing is crucial.
-    // We DON'T include progress in the key because progress changes every second, but we don't want to re-set activity every second if the "Activity" itself (playing Song X) hasn't changed.
-    // However, for "Time Remaining" to be accurate if the user seeks, we might want to update.
-    // But re-setting activity continuously might be bad.
-    // Let's rely on Title+Artist+State change.
-
-    let key = format!("{}|{}|{}", status.title, status.artist, status.is_playing);
-
-    let mut should_update = false;
-    if let Ok(mut last) = state.last_rpc_update.lock() {
-        if *last != key {
-            *last = key;
-            should_update = true;
-        }
-    }
-
-    if should_update {
-        let _ = state.discord.set_activity(
-            &status.title,
-            &status.artist,
-            if status.is_playing {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64;
-                let start = now - status.progress as i64;
-                Some(start)
-            } else {
-                None
-            },
-            if status.cover_url.is_empty() {
-                None
-            } else {
-                Some(status.cover_url.clone())
-            },
-            Some(status.album.clone()),
-        );
-    }
-
-    // 2. Emit event to Frontend (so PlayerBar updates)
-    app.emit("player:update", &status)
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
-}
-
-#[tauri::command]
-fn yt_control(action: String, value: Option<f64>, app: AppHandle) -> Result<(), String> {
-    // use tauri::Manager;
-    // Need to use get_webview for child webviews
-    if let Some(webview) = app.get_webview_window("ytmusic") {
-        let js = format!("window.ytControl('{}', {})", action, value.unwrap_or(0.0));
-        webview.eval(&js).map_err(|e: tauri::Error| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn yt_navigate(url: String, app: AppHandle) -> Result<(), String> {
-    use tauri::Manager;
-    use tauri::WebviewUrl;
-    use tauri::WebviewWindowBuilder;
-
-    // Create webview if it doesn't exist
-    if app.get_webview_window("ytmusic").is_none() {
-        let builder = WebviewWindowBuilder::new(
-            &app,
-            "ytmusic",
-            WebviewUrl::External(url.parse().map_err(|e| format!("Invalid URL: {}", e))?)
-        )
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-        .devtools(true)
-        .initialization_script(include_str!("yt_inject.js"))
-        .inner_size(800.0, 600.0)
-        .visible(true);
-
-        builder.build().map_err(|e| e.to_string())?;
-    } else {
-        // Webview exists, just navigate and show it
-        if let Some(webview) = app.get_webview_window("ytmusic") {
-            // Navigate by evaluating JavaScript
-            let js = format!("window.location.href = '{}';", url);
-            webview.eval(&js).map_err(|e: tauri::Error| e.to_string())?;
-            webview.show().map_err(|e: tauri::Error| e.to_string())?;
-            webview
-                .set_focus()
-                .map_err(|e: tauri::Error| e.to_string())?;
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn set_yt_visibility(show: bool, app: AppHandle) -> Result<(), String> {
-    // use tauri::Manager;
-    if let Some(webview) = app.get_webview_window("ytmusic") {
-        if show {
-            webview.show().map_err(|e: tauri::Error| e.to_string())?;
-            webview
-                .set_focus()
-                .map_err(|e: tauri::Error| e.to_string())?;
-        } else {
-            webview.hide().map_err(|e: tauri::Error| e.to_string())?;
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn move_yt_window(x: f64, y: f64, width: f64, height: f64, app: AppHandle) -> Result<(), String> {
-    // use tauri::Manager;
-    if let Some(webview) = app.get_webview_window("ytmusic") {
-        // For child webviews, bounds are relative to the parent window's content area (I think?).
-        // If x, y are screen coordinates (which they were before), we need to convert them?
-        // Or if the frontend sends us screen coordinates, we need to map them to window-relative coordinates.
-        // Wait, the previous implementation received Physical coordinates which were presumably screen coordinates.
-        // But for a child webview, we want coordinates relative to the Main Window.
-
-        // Frontend logic in YouTubeMusic.tsx:
-        // const x = winPos.x + Math.round(rect.x * factor);
-        // const y = winPos.y + Math.round(rect.y * factor);
-        // This calculates SCREEN coordinates.
-
-        // If we use Child Webview, we want RELATIVE coordinates (rect.x, rect.y).
-        // So we need to update the Frontend too.
-        // However, if we just use set_bounds with what we have, it might be offset by the window position.
-        // Let's assume x, y are correct logical coordinates relative to the window for now,
-        // OR we'll fix the frontend to send relative coordinates.
-        // Since we are changing the implementation significantly, we should update the frontend.
-
-        // Actually, let's keep the signature but expect RELATIVE coordinates (Logical) from now on?
-        // Or Physical relative.
-
-        // Let's assume input is Logical or Physical PIXELS.
-        // Webview::set_bounds takes a Rect.
-
-        // Use LogicalPosition and LogicalSize as that's likely what we get from JS, or just map directly
-
-        webview
-            .set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                x: x as i32,
-                y: y as i32,
-            }))
-            .map_err(|e: tauri::Error| e.to_string())?;
-
-        webview
-            .set_size(tauri::Size::Physical(tauri::PhysicalSize {
-                width: width as u32,
-                height: height as u32,
-            }))
-            .map_err(|e: tauri::Error| e.to_string())?;
-    }
-    Ok(())
-}
-
-// ============================================================================
 // App Entry Point
 // ============================================================================
 
@@ -1307,18 +1031,8 @@ pub fn run() {
             init_library,
             get_library_tracks,
             get_covers_dir,
-            open_yt_music,
-            update_yt_status,
-            yt_control,
-            yt_navigate,
-            set_yt_visibility,
-            move_yt_window,
             get_lyrics,
             get_cached_lyrics,
-            search_youtube,
-            save_unreleased_track,
-            remove_unreleased_track,
-            get_unreleased_library,
             remove_folder,
             clear_all_data,
             apply_lrc_file,

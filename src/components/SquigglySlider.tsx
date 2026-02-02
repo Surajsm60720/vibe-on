@@ -110,7 +110,7 @@ export function SquigglySlider({ value, max, onChange, isPlaying = false, classN
 
             {/* SVG Foreground Layer (Active Progress) - Clipped */}
             <div
-                className="absolute inset-0 overflow-hidden transition-[width] duration-100 ease-linear"
+                className="absolute inset-0 overflow-hidden"
                 style={{ width: `${percent}%` }}
             >
                 <svg

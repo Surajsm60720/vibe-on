@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { invoke } from '@tauri-apps/api/core';
+import { client } from '../api/client';
 import type { PlayerStatus, TrackDisplay } from '../types';
 
 type RepeatMode = 'off' | 'all' | 'one';
@@ -196,7 +196,7 @@ export const usePlayerStore = create<PlayerStore>()(
                 console.log('[PlayerStore] clearAllData called');
                 try {
                     // 1. Clear Backend Data
-                    await invoke('clear_all_data');
+                    await client.clearAllData();
 
                     // 2. Clear Local State
                     set({
@@ -380,7 +380,7 @@ export const usePlayerStore = create<PlayerStore>()(
                     console.log("[PlayerStore] Attempting to play:", path);
                     set({ error: null, activeSource: 'local' });
 
-                    await invoke('play_file', { path });
+                    await client.playFile(path);
 
                     // Add to history
                     const track = get().library.find((t) => t.path === path) || get().queue.find(t => t.path === path);
@@ -408,7 +408,7 @@ export const usePlayerStore = create<PlayerStore>()(
                     newGains[band] = gain;
                     set({ eqGains: newGains, activePresetId: null }); // Clear active preset (custom mode)
                     // Send to backend
-                    invoke('set_eq', { band, gain }).catch(err => {
+                    client.setEq(band, gain).catch(err => {
                         console.error('[PlayerStore] Failed to set EQ:', err);
                     });
                 }
@@ -433,7 +433,7 @@ export const usePlayerStore = create<PlayerStore>()(
                 set({ eqGains: [...preset.gains], activePresetId: preset.id });
                 // Apply to backend
                 preset.gains.forEach((gain, index) => {
-                    invoke('set_eq', { band: index, gain }).catch(console.error);
+                    client.setEq(index, gain).catch(console.error);
                 });
             },
 
@@ -441,10 +441,10 @@ export const usePlayerStore = create<PlayerStore>()(
                 try {
                     const { activeSource } = get();
                     if (activeSource === 'youtube') {
-                        await invoke('yt_control', { action: 'pause' });
+                        await client.ytControl('pause');
                         set((state) => ({ status: { ...state.status, state: 'Paused' } }));
                     } else {
-                        await invoke('pause');
+                        await client.pause();
                         await get().refreshStatus();
                     }
                 } catch (e) {
@@ -456,10 +456,10 @@ export const usePlayerStore = create<PlayerStore>()(
                 try {
                     const { activeSource } = get();
                     if (activeSource === 'youtube') {
-                        await invoke('yt_control', { action: 'play' });
+                        await client.ytControl('play');
                         set((state) => ({ status: { ...state.status, state: 'Playing' } }));
                     } else {
-                        await invoke('resume');
+                        await client.resume();
                         await get().refreshStatus();
                     }
                 } catch (e) {
@@ -469,7 +469,7 @@ export const usePlayerStore = create<PlayerStore>()(
 
             stop: async () => {
                 try {
-                    await invoke('stop');
+                    await client.stop();
                     await get().refreshStatus();
                 } catch (e) {
                     set({ error: String(e) });
@@ -478,7 +478,7 @@ export const usePlayerStore = create<PlayerStore>()(
 
             setVolume: async (value: number) => {
                 try {
-                    await invoke('set_volume', { value });
+                    await client.setVolume(value);
                     set({ savedVolume: value });
                     await get().refreshStatus();
                 } catch (e) {
@@ -490,9 +490,9 @@ export const usePlayerStore = create<PlayerStore>()(
                 try {
                     const { activeSource } = get();
                     if (activeSource === 'youtube') {
-                        await invoke('yt_control', { action: 'seek', value });
+                        await client.ytControl('seek', value);
                     } else {
-                        await invoke('seek', { value });
+                        await client.seek(value);
                         await get().refreshStatus();
                     }
                 } catch (e) {
@@ -502,7 +502,7 @@ export const usePlayerStore = create<PlayerStore>()(
 
             refreshStatus: async () => {
                 try {
-                    const status = await invoke<PlayerStatus>('get_player_state');
+                    const status = await client.getPlayerState();
                     set({ status });
                 } catch (e) {
                     console.error('Failed to refresh status:', e);
@@ -518,7 +518,7 @@ export const usePlayerStore = create<PlayerStore>()(
                     // Re-scan all folders
                     for (const folder of folders) {
                         console.log("Rescanning:", folder);
-                        await invoke('init_library', { path: folder });
+                        await client.initLibrary(folder);
                     }
 
                     // Reload tracks
@@ -532,7 +532,7 @@ export const usePlayerStore = create<PlayerStore>()(
             scanFolder: async (path: string) => {
                 try {
                     set({ isLoading: true, error: null });
-                    const tracks = await invoke<TrackDisplay[]>('init_library', { path });
+                    const tracks = await client.initLibrary(path);
                     const tracksWithId = tracks.map(t => ({ ...t, id: t.path }));
 
                     set(state => {
@@ -558,7 +558,7 @@ export const usePlayerStore = create<PlayerStore>()(
             removeFolder: async (path: string) => {
                 try {
                     set({ isLoading: true });
-                    await invoke('remove_folder', { path });
+                    await client.removeFolder(path);
                     set(state => ({
                         folders: state.folders.filter(f => f !== path),
                     }));
@@ -572,10 +572,10 @@ export const usePlayerStore = create<PlayerStore>()(
             loadLibrary: async () => {
                 try {
                     set({ isLoading: true });
-                    const tracks = await invoke<TrackDisplay[]>('get_library_tracks');
+                    const tracks = await client.getLibraryTracks();
                     let { coversDir } = get();
                     if (!coversDir) {
-                        coversDir = await invoke<string>('get_covers_dir');
+                        coversDir = await client.getCoversDir();
                     }
                     const tracksWithId = tracks.map(t => ({ ...t, id: t.path }));
 
@@ -605,7 +605,7 @@ export const usePlayerStore = create<PlayerStore>()(
                 const { queue, playFile, getCurrentTrackIndex, activeSource } = get();
 
                 if (activeSource === 'youtube') {
-                    await invoke('yt_control', { action: 'prev' });
+                    await client.ytControl('prev');
                     return;
                 }
 
@@ -621,7 +621,7 @@ export const usePlayerStore = create<PlayerStore>()(
                 const { queue, playFile, getCurrentTrackIndex, activeSource, repeatMode } = get();
 
                 if (activeSource === 'youtube') {
-                    await invoke('yt_control', { action: 'next' });
+                    await client.ytControl('next');
                     return;
                 }
 
@@ -716,41 +716,41 @@ export const usePlayerStore = create<PlayerStore>()(
 
             setPreamp: (val: number) => {
                 set({ preampDb: val });
-                invoke('set_eq', { band: 10, gain: val }).catch(console.error);
+                client.setEq(10, val).catch(console.error);
             },
             setBalance: (val: number) => {
                 set({ balance: val });
-                invoke('set_eq', { band: 11, gain: val }).catch(console.error);
+                client.setEq(11, val).catch(console.error);
             },
             setStereoWidth: (val: number) => {
                 set({ stereoWidth: val });
-                invoke('set_eq', { band: 12, gain: val }).catch(console.error);
+                client.setEq(12, val).catch(console.error);
             },
             setSpeed: (val: number) => {
                 set({ speed: val });
-                invoke('set_speed', { value: val }).catch(console.error);
+                client.setSpeed(val).catch(console.error);
             },
             setReverb: (mix: number, decay: number) => {
                 set({ reverbMix: mix, reverbDecay: decay });
-                invoke('set_reverb', { mix, decay }).catch(console.error);
+                client.setReverb(mix, decay).catch(console.error);
             },
 
             // Sync all settings to backend (called on startup)
             syncAudioSettings: () => {
                 const state = get();
                 console.log('[PlayerStore] Syncing audio settings to backend...');
-                invoke('set_reverb', { mix: state.reverbMix, decay: state.reverbDecay }).catch(console.error);
-                invoke('set_speed', { value: state.speed }).catch(console.error);
+                client.setReverb(state.reverbMix, state.reverbDecay).catch(console.error);
+                client.setSpeed(state.speed).catch(console.error);
 
                 // EQ
                 state.eqGains.forEach((gain, index) => {
-                    invoke('set_eq', { band: index, gain }).catch(console.error);
+                    client.setEq(index, gain).catch(console.error);
                 });
 
                 // DSP
-                invoke('set_eq', { band: 10, gain: state.preampDb }).catch(console.error);
-                invoke('set_eq', { band: 11, gain: state.balance }).catch(console.error);
-                invoke('set_eq', { band: 12, gain: state.stereoWidth }).catch(console.error);
+                client.setEq(10, state.preampDb).catch(console.error);
+                client.setEq(11, state.balance).catch(console.error);
+                client.setEq(12, state.stereoWidth).catch(console.error);
             }
         }),
         {

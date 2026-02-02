@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { invoke } from '@tauri-apps/api/core';
+import { client } from '../api/client';
 import { usePlayerStore } from '../store/playerStore';
 import { useCoverArt } from '../hooks/useCoverArt';
 import { useSettingsStore } from '../store/settingsStore';
@@ -101,11 +101,11 @@ export function PlayerBar() {
         // This ensures that when the store rehydrates (and values change from defaults),
         // or when any component changes these values, the backend is updated.
         // This covers the startup sync case.
-        invoke('set_reverb', { mix: reverbMix, decay: reverbDecay }).catch(console.error);
-        invoke('set_speed', { value: speed }).catch(console.error);
-        invoke('set_eq', { band: 10, gain: preampDb }).catch(console.error);
-        invoke('set_eq', { band: 11, gain: balance }).catch(console.error);
-        invoke('set_eq', { band: 12, gain: stereoWidth }).catch(console.error);
+        client.setReverb(reverbMix, reverbDecay).catch(console.error);
+        client.setSpeed(speed).catch(console.error);
+        client.setEq(10, preampDb).catch(console.error);
+        client.setEq(11, balance).catch(console.error);
+        client.setEq(12, stereoWidth).catch(console.error);
     }, [reverbMix, reverbDecay, speed, preampDb, balance, stereoWidth]);
 
     // Poll for status updates while playing
@@ -632,9 +632,7 @@ function TrackStatsModal({ track, onClose }: { track: any; onClose: () => void }
     useEffect(() => {
         const loadFeatures = async () => {
             try {
-                const result = await invoke('get_track_audio_features', {
-                    path: track.path,
-                });
+                const result = await client.getTrackAudioFeatures(track.path);
                 setFeatures(result);
                 setError(null);
             } catch (err) {

@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  vibe-on:
+    build:
+      context: ..
+      dockerfile: host/Dockerfile
+    image: vibe-on:latest
+    container_name: vibe-on
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount your music directory here
+      - ~/Downloads/Zenless Zone Zero - DAMIDAMI [FLAC 48kHz24bit]:/music
+      - ~/Downloads/Wuthering Waves - Duplicitous Tower [FLAC 48kHz24bit]:/music
+      # Persist database and covers
+      - ./data:/app/data
+      - ./covers:/app/covers
+    environment:
+      - MUSIC_DIR=/music
+      - DATA_DIR=/app/data
+      - COVERS_DIR=/app/covers

@@ -3,12 +3,15 @@ import { usePlayerStore } from '../store/playerStore';
 import { motion } from 'framer-motion';
 import { WavySeparator } from './WavySeparator';
 
+// Detect web mode
+const isWebMode = import.meta.env.VITE_APP_MODE === 'web';
+
 import {
     IconHome,
     IconAlbum,
     IconMicrophone,
     IconSettings,
-    IconYoutube,
+    IconBrandSpotify,
     IconDownload,
     IconHeart,
     IconStats,
@@ -29,8 +32,8 @@ function IconMood({ size = 24 }: { size?: number }) {
 }
 
 interface SidebarProps {
-    view: 'tracks' | 'albums' | 'artists' | 'settings' | 'ytmusic' | 'favorites' | 'statistics' | 'torrents' | 'moodradio';
-    onViewChange: (view: 'tracks' | 'albums' | 'artists' | 'settings' | 'ytmusic' | 'favorites' | 'statistics' | 'torrents' | 'moodradio') => void;
+    view: 'tracks' | 'albums' | 'artists' | 'settings' | 'favorites' | 'statistics' | 'torrents' | 'moodradio' | 'spotify';
+    onViewChange: (view: 'tracks' | 'albums' | 'artists' | 'settings' | 'favorites' | 'statistics' | 'torrents' | 'moodradio' | 'spotify') => void;
 }
 
 const sidebarSpring = {
@@ -122,16 +125,6 @@ export function Sidebar({ view, onViewChange }: SidebarProps) {
                 )}
                 {isCollapsed && <div className="my-3 w-8 h-px bg-outline-variant/30" />}
 
-                {/* Online Music Section */}
-                <div className={`flex flex-col gap-1 ${isCollapsed ? 'items-center w-full' : ''}`}>
-                    <NavItem
-                        icon={<IconYoutube size={28} />}
-                        label="YouTube Music"
-                        active={view === 'ytmusic'}
-                        onClick={() => onViewChange('ytmusic')}
-                        collapsed={isCollapsed}
-                    />
-                </div>
 
                 {/* Wavy Separator */}
                 {!isCollapsed && (
@@ -157,17 +150,29 @@ export function Sidebar({ view, onViewChange }: SidebarProps) {
                                 <line x1="18" x2="22" y1="16" y2="16" />
                             </svg>
                         }
-                        label="Equalizer"
+                        label={isWebMode ? "EQ (Desktop Only)" : "Equalizer"}
                         active={false} // Modal does not affect view state
-                        onClick={() => usePlayerStore.getState().setShowEq(true)}
+                        onClick={() => {
+                            if (isWebMode) {
+                                alert('Equalizer is only available in the desktop app. Web mode uses browser audio.');
+                            } else {
+                                usePlayerStore.getState().setShowEq(true);
+                            }
+                        }}
                         collapsed={isCollapsed}
                     />
 
                     <NavItem
                         icon={<IconDownload size={24} />}
-                        label="Downloads"
+                        label={isWebMode ? "Downloads (Desktop Only)" : "Downloads"}
                         active={view === 'torrents'}
-                        onClick={() => onViewChange('torrents')}
+                        onClick={() => {
+                            if (isWebMode) {
+                                alert('Torrent downloads are only available in the desktop app.');
+                            } else {
+                                onViewChange('torrents');
+                            }
+                        }}
                         collapsed={isCollapsed}
                     />
                     <NavItem

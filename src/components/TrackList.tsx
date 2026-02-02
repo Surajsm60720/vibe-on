@@ -37,6 +37,19 @@ function TrackRow({ track, index, isActive, isPlaying, onClick, onContextMenu }:
     const isFavorite = usePlayerStore(state => state.isFavorite(track.path));
     const toggleFavorite = usePlayerStore(state => state.toggleFavorite);
     const addToQueue = usePlayerStore(state => state.addToQueue);
+    const pause = usePlayerStore(state => state.pause);
+    const resume = usePlayerStore(state => state.resume);
+
+    const handlePlayPauseClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isActive && isPlaying) {
+            pause();
+        } else if (isActive && !isPlaying) {
+            resume();
+        } else {
+            onClick(); // Play this track
+        }
+    };
 
     return (
         <div
@@ -58,7 +71,10 @@ function TrackRow({ track, index, isActive, isPlaying, onClick, onContextMenu }:
                     <span className="group-hover:hidden text-label-medium">{isActive ? <IconPlay size={16} fill="currentColor" /> : index + 1}</span>
                 )}
 
-                <span className="hidden group-hover:flex absolute inset-0 items-center justify-center text-primary animate-in fade-in zoom-in duration-200">
+                <span 
+                    className="hidden group-hover:flex absolute inset-0 items-center justify-center text-primary animate-in fade-in zoom-in duration-200 cursor-pointer"
+                    onClick={handlePlayPauseClick}
+                >
                     {isActive && isPlaying ? <IconPause size={20} fill="currentColor" /> : <IconPlay size={20} fill="currentColor" />}
                 </span>
             </span>

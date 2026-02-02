@@ -17,19 +17,19 @@ import { SettingsPage } from './components/SettingsPage';
 import { AmbientBackground } from './components/AmbientBackground';
 import { LyricsPanel } from './components/LyricsPanel';
 import { ThemeManager } from './components/ThemeManager';
-import { YouTubeMusic } from './components/YouTubeMusic';
 import { TorrentManager } from './components/TorrentManager';
 import { FavoritesView } from './components/FavoritesView';
 import { StatisticsPage } from './components/StatisticsPage';
 import { ImmersiveView } from './components/ImmersiveView';
 import { MoodRadio } from './components/mood';
+import { SpotifySearch } from './stream/SpotifySearch';
 import Equalizer from './components/Equalizer';
 import { AnimatePresence } from 'motion/react';
 
 function App() {
   useMediaSession(); // Initialize System Media Controls
   const { loadLibrary, status, pause, resume, playFile, immersiveMode, showEq, setShowEq } = usePlayerStore();
-  const [view, setView] = useState<'tracks' | 'albums' | 'artists' | 'settings' | 'ytmusic' | 'favorites' | 'statistics' | 'torrents' | 'moodradio'>('tracks');
+  const [view, setView] = useState<'tracks' | 'albums' | 'artists' | 'settings' | 'favorites' | 'statistics' | 'torrents' | 'moodradio' | 'spotify'>('tracks');
 
   useEffect(() => {
     loadLibrary();
@@ -175,7 +175,7 @@ function App() {
 
         {/* Sidebar */}
         <div className="shrink-0 h-full z-20 bg-surface-container-low rounded-[2rem]">
-          <Sidebar view={view} onViewChange={setView} />
+          <Sidebar view={view} onViewChange={(v: any) => setView(v)} />
         </div>
 
         {/* Center: Main Content Area (Floating Card) */}
@@ -185,7 +185,7 @@ function App() {
           <main className="flex-1 flex flex-col min-h-0 relative">
             {/* Header Area with drag region */}
             <div className="shrink-0">
-              <Header view={view} onViewChange={setView} />
+              <Header view={view} onViewChange={(v: any) => setView(v)} />
             </div>
 
             {/* Scrollable Content Container */}
@@ -196,9 +196,9 @@ function App() {
               {view === 'favorites' && <FavoritesView />}
               {view === 'statistics' && <StatisticsPage />}
               {view === 'settings' && <SettingsPage />}
-              {view === 'ytmusic' && <YouTubeMusic />}
-              {view === 'torrents' && <TorrentManager />}
               {view === 'moodradio' && <MoodRadio />}
+              {view === 'spotify' && <SpotifySearch />}
+              {view === 'torrents' && <TorrentManager />}
             </div>
 
           </main>

@@ -10,17 +10,36 @@
     "core:path:default",
     "opener:default",
     "dialog:allow-open",
+    "dialog:allow-save",
     "dialog:allow-ask",
     "fs:allow-read-dir",
     "fs:allow-read-file",
+    "fs:allow-read-text-file",
     "fs:allow-write-file",
+    "fs:allow-write-text-file",
     "fs:allow-create",
     "fs:allow-mkdir",
+    "fs:allow-download-write",
+    "fs:allow-download-read",
+    "fs:read-all",
+    "fs:write-all",
     {
       "identifier": "fs:scope",
       "allow": [
         {
           "path": "**"
+        },
+        {
+          "path": "$HOME/**"
+        },
+        {
+          "path": "$DOWNLOAD/**"
+        },
+        {
+          "path": "$DOCUMENT/**"
+        },
+        {
+          "path": "$DESKTOP/**"
         }
       ]
     },

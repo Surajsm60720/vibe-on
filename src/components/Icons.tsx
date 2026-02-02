@@ -203,3 +203,50 @@ export function IconStats({ size = 24, className, ...props }: IconProps) {
         </svg>
     );
 }
+export function IconChartBar({ size = 24, className, ...props }: IconProps) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+            <path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20V14" />
+        </svg>
+    );
+}
+
+export function IconBolt({ size = 24, className, ...props }: IconProps) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+        </svg>
+    );
+}
+
+export function IconMoodSmile({ size = 24, className, ...props }: IconProps) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+            <circle cx="12" cy="12" r="10" /><path d="M8 13a4 4 0 0 0 8 0" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" />
+        </svg>
+    );
+}
+
+export function IconActivity({ size = 24, className, ...props }: IconProps) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        </svg>
+    );
+}
+
+export function IconLock({ size = 24, className, ...props }: IconProps) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+    );
+}
+
+export function IconBrandSpotify({ size = 24, className, ...props }: IconProps) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} {...props}>
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5.408 14.408c-.201.32-.619.421-.939.22-2.522-1.541-5.701-1.89-9.444-1.033-.365.083-.73-.146-.814-.511s.146-.731.511-.814c4.085-.935 7.606-.525 10.466 1.218.32.2.421.618.22.94zm1.442-2.71c-.253.411-.786.541-1.196.289-2.887-1.774-7.288-2.288-10.701-1.252-.463.14-.949-.119-1.09-.582-.14-.463.119-.949.582-1.089 3.896-1.183 8.74-.6 12.126 1.479.41.252.541.785.289 1.196zm.135-2.825C15.516 6.812 9.074 6.598 5.341 7.732c-.571.173-1.176-.15-1.349-.721-.173-.572.15-1.176.721-1.349 4.288-1.302 11.393-1.055 15.565 1.42.513.305.681.971.376 1.484-.305.513-.971.681-1.484.376z" />
+        </svg>
+    );
+}

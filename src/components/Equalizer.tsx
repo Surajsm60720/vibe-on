@@ -1,16 +1,30 @@
 import React, { useRef, useState } from 'react';
 import { usePlayerStore } from '../store/playerStore';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { downloadDir } from '@tauri-apps/api/path';
 
 const BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const BAND_LABELS = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
 
+// Default preset IDs that cannot be deleted
+const DEFAULT_PRESET_IDS = new Set([
+    'flat', 'acoustic', 'classical', 'dance', 'deep', 'electronic', 'hip-hop', 
+    'jazz', 'latin', 'loudness', 'lounge', 'piano', 'pop', 'r&b', 'rock', 
+    'small-speakers', 'spoken-word', 'increase-bass', 'reduce-bass', 
+    'increase-treble', 'reduce-treble', 'increase-vocals'
+]);
+
 
 const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-    const { eqGains, setEqGain, presets, applyPreset, addPreset, activePresetId } = usePlayerStore();
+    const { eqGains, setEqGain, presets, applyPreset, addPreset, removePreset, activePresetId } = usePlayerStore();
+    
+    // State for save preset dialog
+    const [showSaveDialog, setShowSaveDialog] = useState(false);
+    const [presetName, setPresetName] = useState('');
+    const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
     const handleReset = () => {
         BANDS.forEach((_, index) => {
@@ -18,38 +32,85 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         });
     };
 
-    const handleSavePreset = async () => {
-        // Use a non-blocking dialog or stick to prompt for now, but ensure it works.
-        // Prompt is fine for MVP but maybe we can make it nicer later.
-        const name = prompt("Enter preset name:");
-        if (name) {
-            addPreset(name, eqGains);
-            // Force re-render if needed, but store subscription should handle it.
+    const handleSavePreset = () => {
+        setPresetName('');
+        setShowSaveDialog(true);
+    };
+    
+    const confirmSavePreset = () => {
+        if (!presetName.trim()) {
+            setSaveMessage({ type: 'error', text: 'Please enter a preset name' });
+            setTimeout(() => setSaveMessage(null), 3000);
+            return;
+        }
+        
+        // Create and apply the new preset immediately
+        const newId = `custom-${Date.now()}`;
+        const newPreset = { id: newId, name: presetName.trim(), gains: [...eqGains] };
+        
+        usePlayerStore.setState(state => ({
+            presets: [...state.presets, newPreset],
+            activePresetId: newId
+        }));
+        
+        setShowSaveDialog(false);
+        setPresetName('');
+        setSaveMessage({ type: 'success', text: `Preset "${presetName.trim()}" saved!` });
+        setTimeout(() => setSaveMessage(null), 3000);
+    };
+    
+    const handleDeletePreset = (presetId: string, presetNameToDelete: string) => {
+        if (DEFAULT_PRESET_IDS.has(presetId)) {
+            setSaveMessage({ type: 'error', text: 'Cannot delete built-in presets' });
+            setTimeout(() => setSaveMessage(null), 3000);
+            return;
+        }
+        
+        if (confirm(`Delete preset "${presetNameToDelete}"?`)) {
+            removePreset(presetId);
+            // If we deleted the active preset, switch to Flat
+            if (activePresetId === presetId) {
+                const flatPreset = presets.find(p => p.id === 'flat');
+                if (flatPreset) applyPreset(flatPreset);
+            }
+            setSaveMessage({ type: 'success', text: `Preset "${presetNameToDelete}" deleted` });
+            setTimeout(() => setSaveMessage(null), 3000);
         }
     };
 
     const handleExport = async () => {
         try {
+            // Get current preset name if one is selected
+            const currentPreset = presets.find(p => p.id === activePresetId);
+            const defaultName = currentPreset ? `${currentPreset.name.replace(/\s+/g, '-').toLowerCase()}-preset.json` : 'my-eq-preset.json';
+            
+            // Get downloads directory as default location
+            const downloadsPath = await downloadDir();
+            
             const result = await save({
                 filters: [{
                     name: 'JSON Preset',
                     extensions: ['json']
                 }],
-                defaultPath: 'my-preset.json'
+                defaultPath: `${downloadsPath}/${defaultName}`
             });
 
             if (result) {
                 const content = JSON.stringify({
-                    name: 'Custom Preset',
-                    gains: eqGains
+                    name: currentPreset?.name || 'Custom Preset',
+                    gains: eqGains,
+                    exportedAt: new Date().toISOString()
                 }, null, 2);
                 await writeTextFile(result, content);
-                // Use a toast or non-blocking notification if possible, revert to alert for now
-                alert("Preset exported successfully!");
+                
+                // Show success message with path
+                setSaveMessage({ type: 'success', text: `Exported to: ${result}` });
+                setTimeout(() => setSaveMessage(null), 5000);
             }
         } catch (e) {
             console.error("Export failed:", e);
-            alert("Failed to export preset");
+            setSaveMessage({ type: 'error', text: `Export failed: ${e}` });
+            setTimeout(() => setSaveMessage(null), 4000);
         }
     };
 
@@ -65,28 +126,46 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
             if (result) {
                 const path = result as string;
-                // Note: v2 dialog returns string | null for single file
 
                 const content = await readTextFile(path);
                 let data;
                 try {
                     data = JSON.parse(content);
                 } catch (err) {
-                    alert("Invalid JSON file.");
+                    setSaveMessage({ type: 'error', text: 'Invalid JSON file' });
+                    setTimeout(() => setSaveMessage(null), 3000);
                     return;
                 }
 
                 if (data.gains && Array.isArray(data.gains) && data.gains.length === 10) {
-                    const presetName = data.name || "Imported Preset";
-                    addPreset(presetName, data.gains);
-                    alert(`Imported "${presetName}" successfully!`);
+                    const importedName = data.name || "Imported Preset";
+                    // Add the preset and immediately apply it
+                    const newId = `custom-${Date.now()}`;
+                    const newPreset = { id: newId, name: importedName, gains: [...data.gains] };
+                    
+                    // Manually set the preset and apply it via store
+                    usePlayerStore.setState(state => ({
+                        presets: [...state.presets, newPreset],
+                        activePresetId: newId,
+                        eqGains: [...data.gains]
+                    }));
+                    
+                    // Apply gains to backend
+                    data.gains.forEach((gain: number, index: number) => {
+                        setEqGain(index, gain);
+                    });
+                    
+                    setSaveMessage({ type: 'success', text: `Imported & applied "${importedName}"!` });
+                    setTimeout(() => setSaveMessage(null), 3000);
                 } else {
-                    alert("Invalid preset format (must have 10 gain values).");
+                    setSaveMessage({ type: 'error', text: 'Invalid preset format (must have 10 gain values)' });
+                    setTimeout(() => setSaveMessage(null), 3000);
                 }
             }
         } catch (e) {
             console.error("Import failed:", e);
-            alert("Failed to import preset: " + e);
+            setSaveMessage({ type: 'error', text: `Import failed: ${e}` });
+            setTimeout(() => setSaveMessage(null), 4000);
         }
     };
 
@@ -95,7 +174,7 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 pointer-events-auto"
             onClick={(e) => {
                 // Close if clicking the backdrop
                 if (e.target === e.currentTarget) onClose();
@@ -133,28 +212,112 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                             </button>
                         </div>
                     </div>
+                    
+                    {/* Toast Message */}
+                    <AnimatePresence>
+                        {saveMessage && (
+                            <motion.div
+                                initial={{ opacity: 0, y: -10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className={`px-4 py-2 rounded-xl text-body-medium ${
+                                    saveMessage.type === 'success' 
+                                        ? 'bg-primary/20 text-primary' 
+                                        : 'bg-error/20 text-error'
+                                }`}
+                            >
+                                {saveMessage.text}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
 
                     {/* Presets Control Bar */}
                     <div className="flex gap-2 items-center bg-surface-container p-2 rounded-xl">
-                        <select
-                            className="flex-1 bg-transparent text-body-medium text-on-surface border-none outline-none cursor-pointer"
-                            onChange={(e) => {
-                                const preset = presets.find(p => p.id === e.target.value);
-                                if (preset) applyPreset(preset);
-                            }}
-                            value={activePresetId || "manual"}
-                        >
-                            <option value="manual" disabled>Manual</option>
-                            <option value="" disabled hidden>Select Preset...</option>
-                            {presets.map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                        </select>
+                        <div className="flex-1 flex items-center gap-2">
+                            <select
+                                className="flex-1 bg-transparent text-body-medium text-on-surface border-none outline-none cursor-pointer"
+                                onChange={(e) => {
+                                    const preset = presets.find(p => p.id === e.target.value);
+                                    if (preset) applyPreset(preset);
+                                }}
+                                value={activePresetId || "manual"}
+                            >
+                                <option value="manual" disabled>Manual</option>
+                                <optgroup label="Built-in Presets">
+                                    {presets.filter(p => DEFAULT_PRESET_IDS.has(p.id)).map(p => (
+                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                    ))}
+                                </optgroup>
+                                {presets.filter(p => !DEFAULT_PRESET_IDS.has(p.id)).length > 0 && (
+                                    <optgroup label="Custom Presets">
+                                        {presets.filter(p => !DEFAULT_PRESET_IDS.has(p.id)).map(p => (
+                                            <option key={p.id} value={p.id}>★ {p.name}</option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                            </select>
+                            
+                            {/* Delete button for custom presets */}
+                            {activePresetId && !DEFAULT_PRESET_IDS.has(activePresetId) && (
+                                <button
+                                    onClick={() => {
+                                        const preset = presets.find(p => p.id === activePresetId);
+                                        if (preset) handleDeletePreset(activePresetId, preset.name);
+                                    }}
+                                    className="p-1.5 hover:bg-error/20 rounded-full transition-colors text-on-surface-variant hover:text-error"
+                                    title="Delete this preset"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                                    </svg>
+                                </button>
+                            )}
+                        </div>
+                        
                         <div className="w-px h-6 bg-outline-variant/30" />
-                        <button onClick={handleSavePreset} className="text-label-medium text-primary hover:text-primary-hover px-2">Save</button>
-                        <button onClick={handleImport} className="text-label-medium text-on-surface-variant hover:text-on-surface px-2">Import</button>
-                        <button onClick={handleExport} className="text-label-medium text-on-surface-variant hover:text-on-surface px-2">Export</button>
+                        <button onClick={handleSavePreset} className="text-label-medium text-primary hover:text-primary/80 px-2 py-1 rounded-lg hover:bg-primary/10 transition-colors">Save</button>
+                        <button onClick={handleImport} className="text-label-medium text-on-surface-variant hover:text-on-surface px-2 py-1 rounded-lg hover:bg-surface-container-highest transition-colors">Import</button>
+                        <button onClick={handleExport} className="text-label-medium text-on-surface-variant hover:text-on-surface px-2 py-1 rounded-lg hover:bg-surface-container-highest transition-colors">Export</button>
                     </div>
+                    
+                    {/* Save Preset Dialog */}
+                    <AnimatePresence>
+                        {showSaveDialog && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="overflow-hidden"
+                            >
+                                <div className="flex gap-2 items-center bg-primary/10 p-3 rounded-xl border border-primary/30">
+                                    <input
+                                        type="text"
+                                        placeholder="Enter preset name..."
+                                        value={presetName}
+                                        onChange={(e) => setPresetName(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') confirmSavePreset();
+                                            if (e.key === 'Escape') setShowSaveDialog(false);
+                                        }}
+                                        autoFocus
+                                        className="flex-1 bg-surface-container px-3 py-2 rounded-lg text-body-medium text-on-surface outline-none border border-outline-variant/30 focus:border-primary transition-colors"
+                                    />
+                                    <button
+                                        onClick={confirmSavePreset}
+                                        className="px-4 py-2 bg-primary text-on-primary rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                                    >
+                                        Save
+                                    </button>
+                                    <button
+                                        onClick={() => setShowSaveDialog(false)}
+                                        className="px-4 py-2 bg-surface-container text-on-surface rounded-lg font-medium hover:bg-surface-container-highest transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
 
                 {/* EQ Bands - NOW 11 Columns (Preamp + 10 Bands) */}
@@ -187,52 +350,56 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 </div>
 
                 {/* Advanced DSP Controls - Rotary Knobs */}
-                <div className="flex justify-around items-center pt-6 border-t border-outline-variant/10">
-                    <RotaryKnob
-                        label="Stereo Width"
-                        value={usePlayerStore(s => s.stereoWidth)}
-                        min={0} max={2.0}
-                        step={0.1}
-                        format={(v) => `${(v * 100).toFixed(0)}%`}
-                        onChange={usePlayerStore(s => s.setStereoWidth)}
-                        defaultValue={1.0}
-                    />
-                    <RotaryKnob
-                        label="Balance"
-                        value={usePlayerStore(s => s.balance)}
-                        min={-1} max={1}
-                        step={0.05}
-                        format={(v) => v === 0 ? "Center" : (v < 0 ? `L ${Math.abs(v).toFixed(2)}` : `R ${Math.abs(v).toFixed(2)}`)}
-                        onChange={usePlayerStore(s => s.setBalance)}
-                        defaultValue={0.0}
-                    />
-                    <RotaryKnob
-                        label="Speed"
-                        value={usePlayerStore(s => s.speed)}
-                        min={0.5} max={2.0}
-                        step={0.05}
-                        format={(v) => `${v.toFixed(2)}x`}
-                        onChange={usePlayerStore(s => s.setSpeed)}
-                        defaultValue={1.0}
-                    />
-                    <RotaryKnob
-                        label="Reverb Mix"
-                        value={usePlayerStore(s => s.reverbMix)}
-                        min={0.0} max={1.0}
-                        step={0.05}
-                        format={(v) => `${(v * 100).toFixed(0)}%`}
-                        onChange={(val) => usePlayerStore.getState().setReverb(val, usePlayerStore.getState().reverbDecay)}
-                        defaultValue={0.0}
-                    />
-                    <RotaryKnob
-                        label="Reverb Decay"
-                        value={usePlayerStore(s => s.reverbDecay)}
-                        min={0.0} max={1.0}
-                        step={0.05}
-                        format={(v) => v.toFixed(2)}
-                        onChange={(val) => usePlayerStore.getState().setReverb(usePlayerStore.getState().reverbMix, val)}
-                        defaultValue={0.5}
-                    />
+                <div className="flex flex-col gap-4 pt-6 border-t border-outline-variant/10">
+                    <h3 className="text-title-small font-semibold text-on-surface-variant mb-2">Advanced Audio</h3>
+                    <p className="text-body-small text-on-surface-variant/60 -mt-2 mb-2">Drag up/down or left/right • Scroll to fine-tune • Double-click to reset</p>
+                    <div className="flex justify-around items-start">
+                        <RotaryKnob
+                            label="Stereo Width"
+                            value={usePlayerStore(s => s.stereoWidth)}
+                            min={0} max={2.0}
+                            step={0.1}
+                            format={(v) => `${(v * 100).toFixed(0)}%`}
+                            onChange={usePlayerStore(s => s.setStereoWidth)}
+                            defaultValue={1.0}
+                        />
+                        <RotaryKnob
+                            label="Balance"
+                            value={usePlayerStore(s => s.balance)}
+                            min={-1} max={1}
+                            step={0.05}
+                            format={(v) => v === 0 ? "Center" : (v < 0 ? `L ${Math.abs(v * 100).toFixed(0)}%` : `R ${(v * 100).toFixed(0)}%`)}
+                            onChange={usePlayerStore(s => s.setBalance)}
+                            defaultValue={0.0}
+                        />
+                        <RotaryKnob
+                            label="Speed"
+                            value={usePlayerStore(s => s.speed)}
+                            min={0.5} max={2.0}
+                            step={0.05}
+                            format={(v) => `${v.toFixed(2)}x`}
+                            onChange={usePlayerStore(s => s.setSpeed)}
+                            defaultValue={1.0}
+                        />
+                        <RotaryKnob
+                            label="Reverb Mix"
+                            value={usePlayerStore(s => s.reverbMix)}
+                            min={0.0} max={1.0}
+                            step={0.05}
+                            format={(v) => `${(v * 100).toFixed(0)}%`}
+                            onChange={(val) => usePlayerStore.getState().setReverb(val, usePlayerStore.getState().reverbDecay)}
+                            defaultValue={0.0}
+                        />
+                        <RotaryKnob
+                            label="Reverb Decay"
+                            value={usePlayerStore(s => s.reverbDecay)}
+                            min={0.0} max={1.0}
+                            step={0.05}
+                            format={(v) => `${(v * 100).toFixed(0)}%`}
+                            onChange={(val) => usePlayerStore.getState().setReverb(usePlayerStore.getState().reverbMix, val)}
+                            defaultValue={0.5}
+                        />
+                    </div>
                 </div>
             </motion.div>
         </motion.div>
@@ -393,21 +560,30 @@ const RotaryKnob = ({
     onChange: (val: number) => void,
     defaultValue: number
 }) => {
+    const knobRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
-    const startY = useRef<number>(0);
+    const startPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const startVal = useRef<number>(0);
 
-    // Calculate rotation angle
-    // Map min..max to -135deg .. +135deg (270 degree range)
     const range = max - min;
     const normalized = (value - min) / range; // 0..1
-    const angle = (normalized * 270) - 135;
+    const angle = (normalized * 270) - 135; // -135 to +135 degrees
+
+    const updateValue = (newVal: number) => {
+        // Step quantization
+        if (step > 0) {
+            newVal = Math.round(newVal / step) * step;
+        }
+        // Clamp
+        newVal = Math.min(Math.max(newVal, min), max);
+        onChange(newVal);
+    };
 
     const handlePointerDown = (e: React.PointerEvent) => {
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
         setIsDragging(true);
-        startY.current = e.clientY;
+        startPos.current = { x: e.clientX, y: e.clientY };
         startVal.current = value;
     };
 
@@ -415,90 +591,113 @@ const RotaryKnob = ({
         if (!isDragging) return;
         e.preventDefault();
 
-        // Drag Sensitivity
-        const deltaY = startY.current - e.clientY;
-        // 100 pixels = full range?
-        const pixelRange = 200;
-        const deltaVal = (deltaY / pixelRange) * range;
+        // Support both vertical AND horizontal drag (use whichever is larger)
+        const deltaX = e.clientX - startPos.current.x;
+        const deltaY = startPos.current.y - e.clientY; // Invert Y so up = increase
+        
+        // Use the larger delta for more intuitive control
+        const delta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+        
+        // Sensitivity: 150 pixels = full range
+        const sensitivity = 150;
+        const deltaVal = (delta / sensitivity) * range;
 
-        let newVal = startVal.current + deltaVal;
-        // Clamp
-        newVal = Math.min(Math.max(newVal, min), max);
+        updateValue(startVal.current + deltaVal);
+    };
 
-        // Step quantization
-        if (step > 0) {
-            newVal = Math.round(newVal / step) * step;
-        }
+    const handlePointerUp = (e: React.PointerEvent) => {
+        setIsDragging(false);
+        e.currentTarget.releasePointerCapture(e.pointerId);
+    };
 
-        onChange(newVal);
+    const handleWheel = (e: React.WheelEvent) => {
+        e.preventDefault();
+        // Scroll up = increase, scroll down = decrease
+        const direction = e.deltaY < 0 ? 1 : -1;
+        const newVal = value + (step * direction * 2); // 2x step for faster scrolling
+        updateValue(newVal);
     };
 
     const handleDoubleClick = () => {
         onChange(defaultValue);
-    }
+    };
+
+    // Arc path calculation for the progress indicator
+    const radius = 32;
+    const strokeWidth = 6;
+    const circumference = 2 * Math.PI * radius;
+    const arcLength = circumference * 0.75; // 270 degrees
+    const progressOffset = arcLength * (1 - normalized);
 
     return (
-        <div className="flex flex-col items-center gap-2 select-none group">
-            {/* Value text above */}
-            <div className="h-5 text-label-medium font-mono text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex flex-col items-center gap-3 select-none group">
+            {/* Value display - always visible when interacting */}
+            <div className={`h-6 text-label-medium font-mono transition-all duration-150 ${
+                isDragging ? 'text-primary scale-110' : 'text-on-surface-variant'
+            }`}>
                 {format(value)}
             </div>
 
             <div
-                className="relative w-16 h-16 cursor-ns-resize"
+                ref={knobRef}
+                className={`relative w-20 h-20 cursor-grab active:cursor-grabbing touch-none transition-transform ${
+                    isDragging ? 'scale-105' : 'hover:scale-102'
+                }`}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
-                onPointerUp={(e) => {
-                    setIsDragging(false);
-                    e.currentTarget.releasePointerCapture(e.pointerId);
-                }}
+                onPointerUp={handlePointerUp}
+                onWheel={handleWheel}
                 onDoubleClick={handleDoubleClick}
-                title="Double click to reset"
             >
-                {/* Background Track Circle */}
-                <svg width="64" height="64" viewBox="0 0 64 64" className="transform -rotate-90">
+                {/* Background circle with track */}
+                <svg width="80" height="80" viewBox="0 0 80 80" className="absolute inset-0">
+                    {/* Track background (270 degree arc) */}
                     <circle
-                        cx="32" cy="32" r="28"
+                        cx="40" cy="40" r={radius}
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="4"
+                        strokeWidth={strokeWidth}
                         className="text-surface-container-highest"
-                        strokeDasharray={`${2 * Math.PI * 28 * 0.75} ${2 * Math.PI * 28 * 0.25}`}
-                    // Dasharray for 270 degrees 
+                        strokeLinecap="round"
+                        strokeDasharray={`${arcLength} ${circumference}`}
+                        transform="rotate(135 40 40)"
                     />
-                    {/* Active Arc */}
+                    {/* Active progress arc */}
                     <circle
-                        cx="32" cy="32" r="28"
+                        cx="40" cy="40" r={radius}
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="4"
-                        className="text-primary"
-                        strokeDasharray={`${2 * Math.PI * 28}`}
-                        strokeDashoffset={`${2 * Math.PI * 28 * (1 - (normalized * 0.75))}`}
-                        // This math is tricky for SVG arcs. 
-                        // Let's simplify: simple knob with visual marker is easier than SVG arc math for quick tasks.
-                        // But SVG arc looks premium.
-                        // Circumference C = 175.9
-                        // Visible arc 75% = 132
-                        // Offset starts at 0 (full) to 132 (empty).
-                        // if value is 0 (min), offset should be 132 (hidden).
-                        // if value is 1 (max), offset should be 0 (full).
+                        strokeWidth={strokeWidth}
+                        className={`transition-colors ${isDragging ? 'text-primary' : 'text-primary/70 group-hover:text-primary'}`}
                         strokeLinecap="round"
-                        style={{
-                            strokeDasharray: `${2 * Math.PI * 28 * 0.75} ${2 * Math.PI * 28}`,
-                            strokeDashoffset: (2 * Math.PI * 28 * 0.75) * (1 - normalized)
-                        }}
+                        strokeDasharray={`${arcLength} ${circumference}`}
+                        strokeDashoffset={progressOffset}
+                        transform="rotate(135 40 40)"
                     />
                 </svg>
 
-                {/* Knob body (invisible trigger or center) */}
-
-                {/* Marker (Dot) */}
-                <div
-                    className="absolute top-0 left-0 w-full h-full pointer-events-none flex items-center justify-center"
-                    style={{ transform: `rotate(${angle}deg)` }}
-                >
-                    <div className="absolute top-[8px] w-1.5 h-1.5 bg-on-primary rounded-full shadow-sm" />
+                {/* Knob body */}
+                <div className={`absolute inset-2 rounded-full transition-all ${
+                    isDragging 
+                        ? 'bg-surface-container-high shadow-lg' 
+                        : 'bg-surface-container shadow-md group-hover:bg-surface-container-high'
+                }`}>
+                    {/* Center dot */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <div className={`w-2 h-2 rounded-full transition-colors ${
+                            isDragging ? 'bg-primary' : 'bg-on-surface-variant/30'
+                        }`} />
+                    </div>
+                    
+                    {/* Indicator line */}
+                    <div 
+                        className="absolute inset-0 flex items-center justify-center"
+                        style={{ transform: `rotate(${angle}deg)` }}
+                    >
+                        <div className={`absolute top-2 w-1 h-4 rounded-full transition-colors ${
+                            isDragging ? 'bg-primary' : 'bg-on-surface-variant group-hover:bg-primary/70'
+                        }`} />
+                    </div>
                 </div>
             </div>
 
