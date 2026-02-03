@@ -120,7 +120,7 @@ impl MediaControlService {
         }
 
         let config = PlatformConfig {
-            dbus_name: "vibe_on",
+            dbus_name: "vibeon",  // Must be alphanumeric for MPRIS (no underscores/hyphens)
             display_name: "VIBE-ON!",
             hwnd: Some(dummy_hwnd.0 as *mut std::ffi::c_void),
         };

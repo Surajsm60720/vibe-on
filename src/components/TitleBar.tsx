@@ -1,12 +1,24 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { SearchBar } from './SearchBar';
+import { MobilePairingPopup } from './MobilePairingPopup';
+import { useMobileStore } from '../store/mobileStore';
+import { IconMobileDevice } from './Icons';
 
 export function TitleBar() {
     const appWindow = getCurrentWindow();
     const [isMaximized, setIsMaximized] = useState(false);
     const [closeHovered, setCloseHovered] = useState(false);
     const [isMacOS, setIsMacOS] = useState(false);
+    
+    // Mobile pairing state
+    const { status, togglePopup, checkServerStatus } = useMobileStore();
+    const mobileButtonRef = useRef<HTMLButtonElement>(null);
+    
+    // Check server status on mount
+    useEffect(() => {
+        checkServerStatus();
+    }, [checkServerStatus]);
 
     // Detect OS on mount
     useEffect(() => {
@@ -14,6 +26,46 @@ export function TitleBar() {
         const userAgent = navigator.userAgent.toLowerCase();
         setIsMacOS(platform.includes('mac') || userAgent.includes('mac'));
     }, []);
+    
+    // Get mobile icon style based on status
+    const getMobileIconStyle = () => {
+        switch (status) {
+            case 'connected':
+                return {
+                    color: 'var(--md-sys-color-primary)',
+                    filter: 'drop-shadow(0 0 4px var(--md-sys-color-primary))',
+                };
+            case 'connecting':
+            case 'searching':
+                return {
+                    color: 'var(--md-sys-color-tertiary)',
+                };
+            default:
+                return {
+                    color: 'var(--md-sys-color-outline)',
+                };
+        }
+    };
+    
+    const getMobileIconClass = () => {
+        if (status === 'searching' || status === 'connecting') {
+            return 'animate-pulse';
+        }
+        return '';
+    };
+    
+    // Mobile pairing button component
+    const mobileButton = (
+        <button
+            ref={mobileButtonRef}
+            onClick={togglePopup}
+            className={`w-5 h-5 flex items-center justify-center opacity-80 hover:opacity-100 transition-all duration-150 ${getMobileIconClass()}`}
+            title="Mobile Companion"
+            style={getMobileIconStyle()}
+        >
+            <IconMobileDevice size={16} />
+        </button>
+    );
 
     const nameSection = (
         <div data-tauri-drag-region className="flex items-center gap-3">
@@ -70,7 +122,10 @@ export function TitleBar() {
                     <div data-tauri-drag-region className="flex-1 flex justify-center">
                         <SearchBar />
                     </div>
-                    {nameSection}
+                    <div className="flex items-center gap-3">
+                        {mobileButton}
+                        {nameSection}
+                    </div>
                 </>
             ) : (
                 <>
@@ -78,7 +133,10 @@ export function TitleBar() {
                     <div data-tauri-drag-region className="flex-1 flex justify-end pr-8">
                         <SearchBar />
                     </div>
-                    <div className="flex items-center gap-2 pr-2">
+                    <div className="flex items-center gap-3 pr-2">
+                        {/* Mobile Pairing Button */}
+                        {mobileButton}
+                        
                         {/* Windows Order: Minimize, Maximize, Close */}
                         <button
                             onClick={() => appWindow.minimize()}
@@ -116,6 +174,9 @@ export function TitleBar() {
                     </div>
                 </>
             )}
+            
+            {/* Mobile Pairing Popup */}
+            <MobilePairingPopup anchorRef={mobileButtonRef} />
         </div>
     );
 }

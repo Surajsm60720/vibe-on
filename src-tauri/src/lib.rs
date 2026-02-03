@@ -3,6 +3,8 @@ mod cover_fetcher;
 mod database;
 mod discord_rpc;
 mod lyrics_fetcher;
+mod p2p;
+mod server;
 #[cfg(target_os = "windows")]
 mod taskbar_controls;
 mod torrent;
@@ -21,6 +23,8 @@ use audio::MediaControlService;
 use audio::{AudioPlayer, MediaCmd, TrackInfo};
 use database::DatabaseManager;
 use discord_rpc::DiscordRpc;
+use p2p::P2PManager;
+use tokio::sync::RwLock as TokioRwLock;
 
 // Discord App ID
 const DISCORD_APP_ID: &str = "1463457295974535241";
@@ -47,6 +51,9 @@ pub struct AppState {
     media_cmd_tx: Mutex<Option<Sender<MediaCmd>>>,
     lyrics_cache: Arc<Mutex<CachedLyrics>>,
     torrent_manager: Arc<Mutex<Option<torrent::TorrentManager>>>,
+    p2p_manager: Arc<TokioRwLock<Option<P2PManager>>>,
+    server_running: Arc<Mutex<bool>>,
+    server_shutdown_tx: Arc<Mutex<Option<tokio::sync::broadcast::Sender<()>>>>,
 }
 
 impl Default for AppState {
@@ -59,6 +66,9 @@ impl Default for AppState {
             media_cmd_tx: Mutex::new(None),
             lyrics_cache: Arc::new(Mutex::new(CachedLyrics::default())),
             torrent_manager: Arc::new(Mutex::new(None)),
+            p2p_manager: Arc::new(TokioRwLock::new(None)),
+            server_running: Arc::new(Mutex::new(false)),
+            server_shutdown_tx: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -411,12 +421,12 @@ async fn init_library(
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<Vec<TrackInfo>, String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use rayon::prelude::*;
+    
     // 1. Init DB if needed
     get_or_init_db(&state, &app_handle)?;
 
-    // 2. Scan folder (simple implementation for now calling the helper)
-    // Note: In a real app this should probably be in a separate thread/task outside the async runtime block if blocking
-    // But scan_music_folder_helper is sync.
     let path_obj = Path::new(&path);
     if !path_obj.is_dir() {
         return Err("Path is not a directory".to_string());
@@ -424,31 +434,42 @@ async fn init_library(
 
     println!("[Library] Scanning folder: {:?}", path_obj);
     let files = scan_music_folder_helper(path_obj);
-    println!("[Library] Found {} files.", files.len());
+    println!("[Library] Found {} files. Processing in parallel...", files.len());
 
-    let mut tracks = Vec::new();
-    let mut inserted_count = 0;
+    let processed = AtomicUsize::new(0);
+    let total = files.len();
+    
+    // 2. Process metadata IN PARALLEL (skip cover extraction for speed)
+    let tracks: Vec<TrackInfo> = files.par_iter()
+        .filter_map(|file_path| {
+            let count = processed.fetch_add(1, Ordering::Relaxed) + 1;
+            if count % 100 == 0 || count == total {
+                println!("[Library] Processed {}/{} files...", count, total);
+            }
+            
+            // Extract metadata WITHOUT cover art (much faster)
+            match get_track_metadata_helper_fast(file_path) {
+                Ok(track) => Some(track),
+                Err(_) => None, // Skip files that fail
+            }
+        })
+        .collect();
 
-    // 3. Process metadata and insert into DB
+    println!("[Library] Metadata extraction complete. Inserting {} tracks into database...", tracks.len());
+
+    // 3. Batch insert into database
     let db_guard = state.db.lock().unwrap();
     if let Some(ref db) = *db_guard {
-        for file_path in files {
-            // Re-use logic from get_track_metadata but we need it available here
-            if let Ok((track, cover_data)) = get_track_metadata_helper(&file_path) {
-                match db.insert_track(&track, cover_data.as_deref()) {
-                    Ok(_) => inserted_count += 1,
-                    Err(e) => eprintln!("[Library] Failed to insert track {}: {}", file_path, e),
-                }
-                tracks.push(track);
+        let mut inserted_count = 0;
+        for track in &tracks {
+            // Insert without cover data initially (covers loaded lazily on demand)
+            match db.insert_track(&track, None) {
+                Ok(_) => inserted_count += 1,
+                Err(e) => eprintln!("[Library] Failed to insert track {}: {}", track.path, e),
             }
         }
-        println!(
-            "[Library] Successfully processed {}/{} tracks.",
-            inserted_count,
-            tracks.len()
-        );
-
-        // Return all tracks currently in DB (or just the new ones? Use get_all_tracks for consistency)
+        println!("[Library] Successfully inserted {}/{} tracks.", inserted_count, tracks.len());
+        
         db.get_all_tracks().map_err(|e| e.to_string())
     } else {
         Err("Database not initialized".to_string())
@@ -608,6 +629,63 @@ fn get_track_metadata_helper(path_str: &str) -> Result<(TrackInfo, Option<Vec<u8
         },
         cover_data,
     ))
+}
+
+// Fast metadata extraction WITHOUT cover art (for bulk import)
+fn get_track_metadata_helper_fast(path_str: &str) -> Result<TrackInfo, String> {
+    use lofty::prelude::*;
+    use lofty::probe::Probe;
+
+    let path = Path::new(path_str);
+    let tagged_file_res = Probe::open(path)
+        .and_then(|probe| probe.read());
+
+    let tagged_file = tagged_file_res.map_err(|e| format!("{}", e))?;
+
+    let properties = tagged_file.properties();
+    let duration_secs = properties.duration().as_secs_f64();
+
+    let (title, artist, album, disc_number, track_number) =
+        if let Some(tag) = tagged_file.primary_tag() {
+            (
+                tag.title().map(|s| s.to_string()).unwrap_or_else(|| {
+                    path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("Unknown")
+                        .to_string()
+                }),
+                tag.artist()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "Unknown Artist".to_string()),
+                tag.album()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "Unknown Album".to_string()),
+                tag.disk(),
+                tag.track(),
+            )
+        } else {
+            (
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown")
+                    .to_string(),
+                "Unknown Artist".to_string(),
+                "Unknown Album".to_string(),
+                None,
+                None,
+            )
+        };
+
+    Ok(TrackInfo {
+        path: path.to_string_lossy().to_string(),
+        title,
+        artist,
+        album,
+        duration_secs,
+        cover_image: None,
+        disc_number,
+        track_number,
+    })
 }
 
 // Keep the old commands for now but scan_music_folder is now internal helper mostly
@@ -804,10 +882,27 @@ async fn init_torrent_backend(
     download_dir: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let dir = std::path::PathBuf::from(download_dir);
+    println!("[Torrent Backend] Initializing with download_dir: {}", download_dir);
+    let dir = std::path::PathBuf::from(&download_dir);
+    
+    // Try to create directory with better error message
     if !dir.exists() {
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        println!("[Torrent Backend] Creating directory: {:?}", dir);
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            let err_msg = format!("Failed to create directory '{}': {} (error code: {:?})", download_dir, e, e.kind());
+            eprintln!("[Torrent Backend] {}", err_msg);
+            err_msg
+        })?;
     }
+    
+    // Verify we can write to the directory
+    let test_file = dir.join(".test_write");
+    if let Err(e) = std::fs::write(&test_file, b"test") {
+        let err_msg = format!("Cannot write to directory '{}': {} (error code: {:?})", download_dir, e, e.kind());
+        eprintln!("[Torrent Backend] {}", err_msg);
+        return Err(err_msg);
+    }
+    let _ = std::fs::remove_file(test_file);
 
     // Use a block to Scope the lock
     // Check if initialized
@@ -1005,6 +1100,90 @@ fn set_reverb(mix: f32, decay: f32, state: State<AppState>) -> Result<(), String
     }
 }
 
+// ============================================================================
+// Mobile Companion Server Commands
+// ============================================================================
+
+#[tauri::command]
+async fn start_mobile_server(
+    state: State<'_, AppState>,
+    _app_handle: AppHandle,
+) -> Result<(), String> {
+    // Check if already running
+    {
+        let running = state.server_running.lock().map_err(|_| "Failed to lock server_running".to_string())?;
+        if *running {
+            return Ok(());
+        }
+    }
+    
+    // Mark as running
+    {
+        let mut running = state.server_running.lock().map_err(|_| "Failed to lock server_running".to_string())?;
+        *running = true;
+    }
+
+    // Create shutdown channel
+    let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
+    
+    // Store shutdown sender
+    {
+        let mut tx_guard = state.server_shutdown_tx.lock().map_err(|_| "Failed to lock server_shutdown_tx".to_string())?;
+        *tx_guard = Some(shutdown_tx);
+    }
+    
+    // Start server in background with the real app handle
+    let config = server::ServerConfig::default();
+    let port = config.port;
+    let server_running = state.server_running.clone();
+    let app_handle_clone = _app_handle.clone();
+    
+    tokio::spawn(async move {
+        if let Err(e) = server::start_server(app_handle_clone, config, shutdown_rx).await {
+            eprintln!("[Server] Failed to start: {}", e);
+            if let Ok(mut running) = server_running.lock() {
+                *running = false;
+            }
+        }
+    });
+    
+    println!("[Server] Mobile companion server started on port {}", port);
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_mobile_server(state: State<'_, AppState>) -> Result<(), String> {
+    // Send shutdown signal
+    {
+        let tx_guard = state.server_shutdown_tx.lock().map_err(|_| "Failed to lock server_shutdown_tx".to_string())?;
+        if let Some(ref tx) = *tx_guard {
+            let _ = tx.send(());
+        }
+    }
+    
+    // Mark as not running
+    let mut running = state.server_running.lock().map_err(|_| "Failed to lock server_running".to_string())?;
+    *running = false;
+    println!("[Server] Mobile companion server stopped");
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_server_status(state: State<'_, AppState>) -> Result<bool, String> {
+    let running = state.server_running.lock().map_err(|_| "Failed to lock server_running".to_string())?;
+    Ok(*running)
+}
+
+#[tauri::command]
+async fn get_p2p_peers(state: State<'_, AppState>) -> Result<Vec<p2p::discovery::DiscoveredPeer>, String> {
+    let p2p_guard = state.p2p_manager.read().await;
+    if let Some(ref p2p) = *p2p_guard {
+        Ok(p2p.get_peers().await)
+    } else {
+        Ok(vec![])
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -1047,6 +1226,10 @@ pub fn run() {
             pause_torrent,
             resume_torrent,
             search_torrents,
+            start_mobile_server,
+            stop_mobile_server,
+            get_server_status,
+            get_p2p_peers,
             // Mood feature commands
             mood::check_essentia_available,
             mood::analyze_track,
@@ -1102,6 +1285,28 @@ pub fn run() {
             // Initialize Mood features
             mood::setup_mood_state(_app.handle());
 
+            
+            // Start mobile companion server and P2P in background
+            let app_handle = _app.handle().clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+                rt.block_on(async {
+                    // Initialize P2P manager
+                    let device_name = p2p::get_device_name();
+                    match P2PManager::new(device_name).await {
+                        Ok(p2p) => {
+                            println!("[P2P] Manager initialized successfully");
+                            let state = app_handle.state::<AppState>();
+                            let mut p2p_guard = state.p2p_manager.write().await;
+                            *p2p_guard = Some(p2p);
+                        }
+                        Err(e) => {
+                            eprintln!("[P2P] Failed to initialize: {}", e);
+                        }
+                    }
+                });
+            });
+            
             Ok(())
         })
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {

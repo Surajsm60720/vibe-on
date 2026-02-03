@@ -6,7 +6,7 @@
 
 > **Experience Your Music, Elevated.**
 
-VIBE-ON! is a modern, aesthetically crafted music player built for those who care about how their music *feels*. It merges your local library with the power of the web, wrapped in a stunning, dynamically theming interface that reacts to your music in real-time.
+VIBE-ON! is a modern, aesthetically crafted music player designed to elevate your listening experience. Seamlessly blending your local music library with web-powered features, it offers a stunning, dynamically theming interface that visually responds to your music in real-time.
 
 ---
 

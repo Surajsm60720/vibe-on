@@ -5,6 +5,7 @@ import { PlayerBar } from './components/PlayerBar';
 import { useMediaSession } from './hooks/useMediaSession';
 import { useEffect, useRef, useState } from 'react';
 import { usePlayerStore } from './store/playerStore';
+import { useMobileStore } from './store/mobileStore';
 import { useSettingsStore } from './store/settingsStore';
 
 import { TitleBar } from './components/TitleBar';
@@ -79,6 +80,29 @@ function App() {
           else store.resume();
         }),
         listen('media:stop', () => usePlayerStore.getState().stop()),
+
+        // Listen for Mobile Connection Events
+        listen('mobile_client_connected', (event: any) => {
+          console.log('[Mobile] Client connected event:', event.payload);
+          const { client_id, client_name } = event.payload;
+          // Update store
+          const device = {
+            id: client_id,
+            name: client_name || 'Mobile Device',
+            ip: 'unknown',
+            port: 0,
+            connectedAt: Date.now(),
+            platform: 'android', // assume android for now or get from payload if available
+          };
+
+          // Use the store instance to update state
+          useMobileStore.getState().setConnectedDevice(device);
+        }),
+
+        listen('mobile_client_disconnected', (event: any) => {
+          console.log('[Mobile] Client disconnected event:', event.payload);
+          useMobileStore.getState().disconnect();
+        }),
       ]);
 
       return () => {
