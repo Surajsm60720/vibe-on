@@ -26,6 +26,8 @@ import { MoodRadio } from './components/mood';
 import { SpotifySearch } from './stream/SpotifySearch';
 import Equalizer from './components/Equalizer';
 import { AnimatePresence } from 'motion/react';
+import { FullscreenVisualizer } from './components/AudioVisualizer';
+import { useVisualizerStore } from './store/visualizerStore';
 
 function App() {
   useMediaSession(); // Initialize System Media Controls
@@ -59,6 +61,12 @@ function App() {
         } else if (status.state === 'Stopped' && status.track) {
           playFile(status.track.path);
         }
+      }
+
+      // V key for visualizer
+      if (e.code === 'KeyV') {
+        const vizStore = useVisualizerStore.getState();
+        vizStore.setDisplayMode(vizStore.displayMode === 'fullscreen' ? 'off' : 'fullscreen');
       }
     };
 
@@ -273,6 +281,9 @@ function App() {
       <AnimatePresence>
         {showEq && <Equalizer onClose={() => setShowEq(false)} />}
       </AnimatePresence>
+
+      {/* Fullscreen Visualizer */}
+      <FullscreenVisualizer />
     </div>
   );
 }

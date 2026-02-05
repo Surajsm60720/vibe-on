@@ -20,7 +20,7 @@ const DEFAULT_PRESET_IDS = new Set([
 
 const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const { eqGains, setEqGain, presets, applyPreset, removePreset, activePresetId } = usePlayerStore();
-
+    
     // State for save preset dialog
     const [showSaveDialog, setShowSaveDialog] = useState(false);
     const [presetName, setPresetName] = useState('');

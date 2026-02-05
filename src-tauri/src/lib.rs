@@ -421,6 +421,22 @@ fn get_player_state(state: State<AppState>) -> PlayerStatus {
 }
 
 // ============================================================================
+// Tauri Commands - Audio Visualizer
+// ============================================================================
+
+/// Get audio visualizer data (frequency spectrum and waveform).
+/// Called by frontend at ~60fps for real-time visualization.
+#[tauri::command]
+fn get_visualizer_data(state: State<AppState>) -> audio::VisualizerData {
+    let player_guard = state.player.lock().unwrap();
+    if let Some(ref player) = *player_guard {
+        player.get_visualizer_data()
+    } else {
+        audio::VisualizerData::default()
+    }
+}
+
+// ============================================================================
 // Tauri Commands - Library Management
 // ============================================================================
 
@@ -1349,6 +1365,8 @@ pub fn run() {
             set_eq,
             set_speed,
             set_reverb,
+            // Audio Visualizer
+            get_visualizer_data,
         ])
         .setup(|_app| {
             // Initialize Windows Media Controls with the main window handle

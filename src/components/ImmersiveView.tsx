@@ -7,7 +7,6 @@ import { useThemeStore } from '../store/themeStore';
 import { IconClose, IconPlay, IconPause, IconNext, IconPrevious, IconMusicNote, IconShuffle, IconHeart } from './Icons';
 import { CurvedList } from './CurvedList';
 
-
 import { formatTime } from '../utils/formatTime';
 
 export function ImmersiveView() {

@@ -6,7 +6,7 @@ import { useThemeStore } from '../store/themeStore';
 import { IconClose, IconRefresh, IconWifi, IconCheck, IconMobileDevice } from './Icons';
 
 interface MobilePairingPopupProps {
-    anchorRef: React.RefObject<HTMLButtonElement>;
+    anchorRef: React.RefObject<HTMLButtonElement | null>;
 }
 
 // Decorative floating shape component

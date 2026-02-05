@@ -16,6 +16,7 @@ import {
     IconMusicNote,
     IconShuffle,
 } from './Icons';
+import { useVisualizerStore } from '../store/visualizerStore';
 
 // Icon for speakers/audio output
 function IconSpeaker({ size = 24 }: { size?: number }) {
@@ -114,6 +115,7 @@ export function PlayerBar() {
         error, setError, isShuffled, toggleShuffle, favorites, toggleFavorite, audioOutput, setAudioOutput
     } = usePlayerStore();
     const { albumArtStyle, expandedArtMode } = useSettingsStore();
+    const setVisualizerDisplayMode = useVisualizerStore(s => s.setDisplayMode);
     const { state, track, position_secs, volume } = status;
     const lastStateRef = useRef(state);
 
@@ -521,6 +523,20 @@ export function PlayerBar() {
                                             </svg>
                                         </button>
                                     )}
+
+                                    {/* Visualizer Launch Button */}
+                                    <button
+                                        onClick={() => setVisualizerDisplayMode('fullscreen')}
+                                        className="p-2 rounded-full transition-colors text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest"
+                                        title="Open Fullscreen Visualizer (V)"
+                                    >
+                                        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                                            <rect x="4" y="14" width="3" height="6" rx="1" />
+                                            <rect x="9" y="10" width="3" height="10" rx="1" />
+                                            <rect x="14" y="6" width="3" height="14" rx="1" />
+                                            <rect x="19" y="12" width="3" height="8" rx="1" />
+                                        </svg>
+                                    </button>
 
 
                                     {/* Shuffle Button */}

@@ -11,10 +11,7 @@ pub mod websocket;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::{
-    routing::get,
-    Router,
-};
+use axum::{routing::get, Router};
 use tokio::sync::{broadcast, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 
@@ -35,7 +32,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            port: 5000,
+            port: 5443,
             server_name: crate::p2p::get_device_name(),
         }
     }
@@ -66,12 +63,12 @@ impl ServerState {
             config,
         }
     }
-    
+
     /// Get the app state from the Tauri app handle
     pub fn app_state(&self) -> tauri::State<'_, crate::AppState> {
         self.app_handle.state::<crate::AppState>()
     }
-    
+
     /// Broadcast an event to all connected clients
     pub fn broadcast(&self, event: ServerEvent) {
         let _ = self.event_tx.send(event);
@@ -98,10 +95,7 @@ pub enum ServerEvent {
         timestamp: u64,
     },
     /// Playback position update
-    PositionUpdate {
-        position: f64,
-        timestamp: u64,
-    },
+    PositionUpdate { position: f64, timestamp: u64 },
     /// Volume/shuffle/repeat status
     Status {
         volume: f64,
@@ -111,9 +105,7 @@ pub enum ServerEvent {
         output: String,
     },
     /// Queue updated
-    QueueUpdate {
-        tracks: Vec<TrackSummary>,
-    },
+    QueueUpdate { tracks: Vec<TrackSummary> },
     /// Lyrics available
     Lyrics {
         #[serde(rename = "trackPath")]
@@ -127,30 +119,19 @@ pub enum ServerEvent {
         instrumental: bool,
     },
     /// P2P handoff preparation
-    HandoffPrepare {
-        sample: u64,
-        url: String,
-    },
+    HandoffPrepare { sample: u64, url: String },
     /// Commit handoff (start playing)
     HandoffCommit,
     /// Stream stopped (returned to desktop)
     StreamStopped,
     /// Error occurred
-    Error {
-        message: String,
-    },
+    Error { message: String },
     /// Pong response
     Pong,
     /// WebRTC Offer
-    WebrtcOffer {
-        from_peer_id: String,
-        sdp: String,
-    },
+    WebrtcOffer { from_peer_id: String, sdp: String },
     /// WebRTC Answer
-    WebrtcAnswer {
-        target_peer_id: String, 
-        sdp: String,
-    },
+    WebrtcAnswer { target_peer_id: String, sdp: String },
     /// ICE Candidate
     IceCandidate {
         from_peer_id: String,
@@ -187,14 +168,14 @@ pub async fn start_server(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let port = config.port;
     let server_state = Arc::new(ServerState::new(app_handle.clone(), config));
-    
+
     // Spawn periodic status broadcast task (every 2 seconds)
     let broadcast_state = server_state.clone();
     let broadcast_handle = app_handle.clone();
-    
+
     // Use a separate shutdown signal for the broadcast task
     let mut broadcast_shutdown = shutdown_rx.resubscribe();
-    
+
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
         loop {
@@ -285,7 +266,7 @@ pub async fn start_server(
             }
         }
     });
-    
+
     // Build router
     let app = Router::new()
         // Health check
@@ -315,14 +296,14 @@ pub async fn start_server(
                 .allow_headers(Any),
         )
         .with_state(server_state.clone());
-    
+
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     log::info!("Starting VIBE-ON! server on http://{}", addr);
     println!("[Server] HTTP/WS listening on http://{}", addr);
-    
+
     // Start mDNS advertisement
     let server_name = server_state.config.server_name.clone();
-    
+
     // Use select to handle mDNS task with shutdown
     let mut mdns_shutdown = shutdown_rx.resubscribe();
     tokio::spawn(async move {
@@ -335,7 +316,7 @@ pub async fn start_server(
             }
         }
     });
-    
+
     // Start server with graceful shutdown
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app)
@@ -344,24 +325,27 @@ pub async fn start_server(
             println!("[Server] Graceful shutdown signal received");
         })
         .await?;
-    
+
     Ok(())
 }
 
 /// Advertise the server via mDNS
-async fn advertise_mdns(server_name: &str, port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn advertise_mdns(
+    server_name: &str,
+    port: u16,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     use mdns_sd::{ServiceDaemon, ServiceInfo};
-    
+
     log::info!("mDNS: Advertising _vibe-on._tcp on port {}", port);
-    
+
     // Create a daemon
     let mdns = ServiceDaemon::new()?;
-    
+
     // Create a service info.
     // The service type must end with a period.
     let service_type = "_vibe-on._tcp.local.";
     let instance_name = server_name;
-    
+
     // Get primary IPv4 address (exclude loopback and link-local)
     let ipv4_addr = if_addrs::get_if_addrs()
         .unwrap_or_default()
@@ -376,9 +360,9 @@ async fn advertise_mdns(server_name: &str, port: u16) -> Result<(), Box<dyn std:
             }
         })
         .unwrap_or_else(|| "".to_string());
-    
+
     log::info!("mDNS: Using IPv4 address: {}", ipv4_addr);
-    
+
     // Create service info with specific IPv4 address as hostname
     let service_info = ServiceInfo::new(
         service_type,
@@ -386,14 +370,14 @@ async fn advertise_mdns(server_name: &str, port: u16) -> Result<(), Box<dyn std:
         &format!("{}.local.", instance_name),
         &ipv4_addr, // Use IPv4 address directly
         port,
-        &[("version", "1")][..]
+        &[("version", "1")][..],
     )?;
-    
+
     // Register the service
     mdns.register(service_info)?;
-    
+
     log::info!("mDNS: Service registered successfully with IPv4 address");
-    
+
     // Keep the advertisement running
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
