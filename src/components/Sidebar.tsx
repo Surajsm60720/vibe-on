@@ -11,7 +11,6 @@ import {
     IconAlbum,
     IconMicrophone,
     IconSettings,
-    IconBrandSpotify,
     IconDownload,
     IconHeart,
     IconStats,

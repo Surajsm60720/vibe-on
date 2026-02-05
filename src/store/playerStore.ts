@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { client } from '../api/client';
+import { emit } from '@tauri-apps/api/event';
 import type { PlayerStatus, TrackDisplay } from '../types';
 
 type RepeatMode = 'off' | 'all' | 'one';
@@ -10,6 +11,24 @@ export interface EqPreset {
     name: string;
     gains: number[];
 }
+
+// Helper function to broadcast queue updates to mobile clients via WebSocket
+const broadcastQueueUpdate = async (queue: TrackDisplay[]) => {
+    try {
+        await emit('queue-updated', {
+            tracks: queue.map(t => ({
+                path: t.path,
+                title: t.title,
+                artist: t.artist,
+                album: t.album,
+                duration_secs: t.duration_secs,
+                cover_url: t.cover_image ? `/cover/${encodeURIComponent(t.path)}` : null
+            }))
+        });
+    } catch (e) {
+        console.error('[PlayerStore] Failed to broadcast queue update:', e);
+    }
+};
 
 interface PlayerStore {
     // State
@@ -95,6 +114,10 @@ interface PlayerStore {
     // Immersive Mode
     immersiveMode: boolean;
     toggleImmersiveMode: () => void;
+
+    // Audio Output Selection
+    audioOutput: 'desktop' | 'mobile';
+    setAudioOutput: (output: 'desktop' | 'mobile') => Promise<void>;
 
     // Autoplay Helpers
     playRandomAlbum: () => Promise<void>;
@@ -191,14 +214,25 @@ export const usePlayerStore = create<PlayerStore>()(
             // Immersive Mode
             immersiveMode: false,
 
+            // Audio Output
+            audioOutput: 'desktop',
+
             // Actions
             clearAllData: async () => {
                 console.log('[PlayerStore] clearAllData called');
                 try {
                     // 1. Clear Backend Data
                     await client.clearAllData();
+                    console.log('[PlayerStore] Backend data cleared');
 
-                    // 2. Clear Local State
+                    // 2. Clear LocalStorage (Zustand persist storage)
+                    if (typeof window !== 'undefined') {
+                        localStorage.clear();
+                        sessionStorage.clear();
+                        console.log('[PlayerStore] LocalStorage and SessionStorage cleared');
+                    }
+
+                    // 3. Reset store to initial state
                     set({
                         status: { state: 'Stopped', track: null, position_secs: 0, volume: 1.0 },
                         library: [],
@@ -217,10 +251,20 @@ export const usePlayerStore = create<PlayerStore>()(
                         searchQuery: '',
                         repeatMode: 'off',
                         favorites: new Set(),
+                        savedVolume: 1.0,
+                        lastPlayedTrack: null,
                     });
+                    console.log('[PlayerStore] Store state reset');
+
+                    // 4. Reload the app to ensure clean state
+                    if (typeof window !== 'undefined') {
+                        console.log('[PlayerStore] Reloading application...');
+                        window.location.reload();
+                    }
                 } catch (e) {
                     console.error('[PlayerStore] Failed to clear data:', e);
                     set({ error: String(e) });
+                    throw e; // Re-throw so UI can show error
                 }
             },
 
@@ -269,13 +313,20 @@ export const usePlayerStore = create<PlayerStore>()(
                     originalQueue: tracks, // Backup for un-shuffle
                     isShuffled: false
                 });
+                // Broadcast to mobile clients
+                broadcastQueueUpdate(tracks);
             },
 
             addToQueue: (track: TrackDisplay) => {
-                set(state => ({
-                    queue: [...state.queue, track],
-                    originalQueue: [...state.originalQueue, track]
-                }));
+                set(state => {
+                    const newQueue = [...state.queue, track];
+                    // Broadcast updated queue to mobile clients
+                    broadcastQueueUpdate(newQueue);
+                    return {
+                        queue: newQueue,
+                        originalQueue: [...state.originalQueue, track]
+                    };
+                });
             },
 
             playNext: (track: TrackDisplay) => {
@@ -291,10 +342,14 @@ export const usePlayerStore = create<PlayerStore>()(
                 // If no track playing or not found, add to end (or front?) -> Let's add to front if stopped, after current if playing
                 if (insertIndex === -1) {
                     // Add to front
-                    set(state => ({
-                        queue: [track, ...state.queue],
-                        originalQueue: [track, ...state.originalQueue]
-                    }));
+                    set(state => {
+                        const newQueue = [track, ...state.queue];
+                        broadcastQueueUpdate(newQueue);
+                        return {
+                            queue: newQueue,
+                            originalQueue: [track, ...state.originalQueue]
+                        };
+                    });
                 } else {
                     const newQueue = [...queue];
                     newQueue.splice(insertIndex + 1, 0, track);
@@ -305,10 +360,13 @@ export const usePlayerStore = create<PlayerStore>()(
                     // Simple approach: append to original queue if shuffled to avoid messing order.
                     // Or ideally, insert after current in originalQueue too.
 
-                    set(state => ({
-                        queue: newQueue,
-                        originalQueue: [...state.originalQueue, track] // Simplified
-                    }));
+                    set(state => {
+                        broadcastQueueUpdate(newQueue);
+                        return {
+                            queue: newQueue,
+                            originalQueue: [...state.originalQueue, track] // Simplified
+                        };
+                    });
                 }
             },
 
@@ -322,6 +380,7 @@ export const usePlayerStore = create<PlayerStore>()(
                         isShuffled: false,
                         queue: [...originalQueue]
                     });
+                    broadcastQueueUpdate(originalQueue);
                 } else {
                     // Shuffle
                     // Fisher-Yates shuffle
@@ -352,6 +411,7 @@ export const usePlayerStore = create<PlayerStore>()(
                         isShuffled: true,
                         queue: newQueue
                     });
+                    broadcastQueueUpdate(newQueue);
                 }
             },
 
@@ -367,6 +427,9 @@ export const usePlayerStore = create<PlayerStore>()(
                     console.log("[PlayerStore] Setting queue and playing:", trackToPlay.title);
 
                     set({ queue: tracks });
+                    // Broadcast updated queue to mobile clients
+                    broadcastQueueUpdate(tracks);
+
                     await get().playFile(trackToPlay.path);
 
                 } catch (e) {
@@ -684,7 +747,16 @@ export const usePlayerStore = create<PlayerStore>()(
             toggleImmersiveMode: () => {
                 set(state => ({ immersiveMode: !state.immersiveMode }));
             },
-
+            setAudioOutput: async (output) => {
+                set({ audioOutput: output });
+                // Notify mobile via WebSocket about output change
+                try {
+                    await emit('output-changed', { output });
+                    console.log(`[PlayerStore] Audio output changed to: ${output}`);
+                } catch (e) {
+                    console.error('[PlayerStore] Failed to notify output change:', e);
+                }
+            },
             playRandomAlbum: async () => {
                 const { library, playQueue } = get();
                 if (library.length === 0) return;

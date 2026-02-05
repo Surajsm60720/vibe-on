@@ -176,7 +176,7 @@ export function TitleBar() {
             )}
             
             {/* Mobile Pairing Popup */}
-            <MobilePairingPopup anchorRef={mobileButtonRef} />
+            <MobilePairingPopup anchorRef={mobileButtonRef as React.RefObject<HTMLButtonElement>} />
         </div>
     );
 }

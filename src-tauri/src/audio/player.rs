@@ -21,7 +21,9 @@ pub enum AudioCommand {
     Resume,
     Stop,
     SetVolume(f32),
-    Seek(f64), // New command
+    Seek(f64),     // New command
+    SetMute(bool), // Mute command
+    Load(String),  // Load metadata only
     GetStatus(Sender<PlayerStatus>),
     Shutdown,
     SetEq(usize, f32), // band_index, gain_db
@@ -75,7 +77,11 @@ impl AudioPlayer {
             .map_err(|e| format!("Failed to send play command: {}", e))
     }
 
-    // ... (pause, resume, stop remain same)
+    pub fn load_file(&self, path: &str) -> Result<(), String> {
+        self.command_tx
+            .send(AudioCommand::Load(path.to_string()))
+            .map_err(|e| format!("Failed to send load command: {}", e))
+    }
 
     pub fn pause(&self) -> Result<(), String> {
         self.command_tx
@@ -113,8 +119,11 @@ impl AudioPlayer {
             .map_err(|e| format!("Failed to send speed command: {}", e))
     }
 
-    // ... (rest of impl)
-
+    pub fn set_mute(&self, mute: bool) -> Result<(), String> {
+        self.command_tx
+            .send(AudioCommand::SetMute(mute))
+            .map_err(|e| format!("Failed to send mute command: {}", e))
+    }
     pub fn get_status(&self) -> PlayerStatus {
         let (tx, rx) = channel();
         if self.command_tx.send(AudioCommand::GetStatus(tx)).is_ok() {
@@ -174,6 +183,7 @@ struct AudioThread {
     current_track: Option<TrackInfo>,
     current_path: Option<String>, // Store path for seek reload
     volume: f32,
+    muted: bool,
     play_start_time: Option<Instant>,
     accumulated_time: f64,
     eq_gains: Arc<Mutex<Vec<f32>>>,
@@ -212,6 +222,7 @@ impl AudioThread {
             current_track: None,
             current_path: None,
             volume: 1.0,
+            muted: false,
             play_start_time: None,
             accumulated_time: 0.0,
             eq_gains,
@@ -222,6 +233,9 @@ impl AudioThread {
             match command_rx.recv_timeout(std::time::Duration::from_millis(100)) {
                 Ok(AudioCommand::Play(path)) => {
                     audio.handle_play(&path, &stream_handle);
+                }
+                Ok(AudioCommand::Load(path)) => {
+                    audio.handle_load(&path);
                 }
                 Ok(AudioCommand::Pause) => {
                     audio.handle_pause();
@@ -237,6 +251,9 @@ impl AudioThread {
                 }
                 Ok(AudioCommand::Seek(seconds)) => {
                     audio.handle_seek(seconds, Some(&stream_handle));
+                }
+                Ok(AudioCommand::SetMute(mute)) => {
+                    audio.handle_set_mute(mute);
                 }
                 Ok(AudioCommand::GetStatus(tx)) => {
                     let status = audio.get_status();
@@ -337,6 +354,22 @@ impl AudioThread {
         self.accumulated_time = 0.0;
     }
 
+    fn handle_load(&mut self, path: &str) {
+        println!("[AudioThread] Handling load for path: '{}'", path);
+        // Stop current playback
+        self.handle_stop();
+
+        let path_obj = Path::new(path);
+        // Extract metadata
+        let track_info = self.extract_metadata(path_obj);
+
+        self.state = PlayerState::Paused; // Load starts in paused state
+        self.current_track = Some(track_info);
+        self.current_path = Some(path.to_string());
+        self.play_start_time = None;
+        self.accumulated_time = 0.0;
+    }
+
     fn extract_metadata(&self, path: &Path) -> TrackInfo {
         let tagged_file = match Probe::open(path).and_then(|p| p.read()) {
             Ok(f) => f,
@@ -432,8 +465,21 @@ impl AudioThread {
 
     fn handle_set_volume(&mut self, value: f32) {
         self.volume = value.clamp(0.0, 1.0);
+        if !self.muted {
+            if let Some(ref sink) = self.sink {
+                sink.set_volume(self.volume);
+            }
+        }
+    }
+
+    fn handle_set_mute(&mut self, mute: bool) {
+        self.muted = mute;
         if let Some(ref sink) = self.sink {
-            sink.set_volume(self.volume);
+            if mute {
+                sink.set_volume(0.0);
+            } else {
+                sink.set_volume(self.volume);
+            }
         }
     }
 

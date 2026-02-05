@@ -34,13 +34,15 @@ interface FavoriteTrackRowProps {
         artist: string;
         album: string;
         duration_secs: number;
+        cover_url?: string;
+        cover_image?: string | null;
     };
     onPlay: () => void;
     onRemove: () => void;
 }
 
 function FavoriteTrackRow({ track, onPlay, onRemove }: FavoriteTrackRowProps) {
-    const coverArt = useCoverArt(track.path);
+    const coverArt = useCoverArt(track.cover_image);
 
     const formatTime = (secs: number) => {
         const m = Math.floor(secs / 60);

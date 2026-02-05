@@ -506,7 +506,9 @@ fn get_covers_dir(state: State<AppState>, app_handle: AppHandle) -> Result<Strin
     get_or_init_db(&state, &app_handle)?;
     let db_guard = state.db.lock().unwrap();
     if let Some(ref db) = *db_guard {
-        Ok(db.get_covers_dir().to_string_lossy().to_string())
+        let covers_dir_path = db.get_covers_dir().to_string_lossy().to_string();
+        println!("Rust Backend: coversDir resolved to: {}", covers_dir_path);
+        Ok(covers_dir_path)
     } else {
         Err("Database not initialized".to_string())
     }
@@ -831,6 +833,17 @@ fn remove_folder(
 
 #[tauri::command]
 fn clear_all_data(state: State<AppState>, app_handle: AppHandle) -> Result<(), String> {
+    println!("[clear_all_data] Starting complete data clear...");
+
+    // Stop any playing audio first
+    if let Ok(player_guard) = state.player.lock() {
+        if let Some(player) = player_guard.as_ref() {
+            let _ = player.stop();
+            println!("[clear_all_data] Stopped player");
+        }
+    }
+
+    // Clear database and covers
     get_or_init_db(&state, &app_handle)?;
     if let Some(db) = state.db.lock().unwrap().as_ref() {
         db.clear_all_data().map_err(|e| e.to_string())?;
@@ -840,10 +853,45 @@ fn clear_all_data(state: State<AppState>, app_handle: AppHandle) -> Result<(), S
             let state_file = manager.download_dir.join(torrent::STATE_FILE);
             let _ = fs::remove_file(&state_file);
         }
-        Ok(())
+        println!("[clear_all_data] Database cleared");
     } else {
-        Err("Database not initialized".to_string())
+        return Err("Database not initialized".to_string());
     }
+
+    // Clear lyrics cache
+    if let Ok(mut lyrics_guard) = state.lyrics_cache.lock() {
+        *lyrics_guard = CachedLyrics::default();
+        println!("[clear_all_data] Lyrics cache cleared");
+    }
+
+    // Clear app data directory (settings, cache, etc.)
+    if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
+        // Clear settings file if exists
+        let settings_file = app_data_dir.join("settings.json");
+        if settings_file.exists() {
+            let _ = std::fs::remove_file(&settings_file);
+            println!("[clear_all_data] Removed settings file");
+        }
+
+        // Clear any other cache files
+        let cache_dir = app_data_dir.join("cache");
+        if cache_dir.exists() {
+            let _ = std::fs::remove_dir_all(&cache_dir);
+            println!("[clear_all_data] Removed cache directory");
+        }
+
+        // Clear localStorage data (stored by Tauri)
+        let local_storage = app_data_dir.join("Local Storage");
+        if local_storage.exists() {
+            let _ = std::fs::remove_dir_all(&local_storage);
+            println!("[clear_all_data] Removed localStorage");
+        }
+
+        println!("[clear_all_data] App data directory cleaned");
+    }
+
+    println!("[clear_all_data] Complete! All data cleared successfully.");
+    Ok(())
 }
 
 #[tauri::command]

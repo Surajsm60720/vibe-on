@@ -103,6 +103,29 @@ function App() {
           console.log('[Mobile] Client disconnected event:', event.payload);
           useMobileStore.getState().disconnect();
         }),
+
+        // Listen for player state refreshes (e.g. from mobile remote control)
+        listen('refresh-player-state', () => {
+          console.log('[Native] Refreshing player state from backend event');
+          usePlayerStore.getState().refreshStatus();
+        }),
+
+        // Listen for output changes (triggered from mobile or PC UI)
+        listen('output-changed', (event: any) => {
+          console.log('[Output] Output changed:', event.payload);
+          const { output } = event.payload;
+          const playerStore = usePlayerStore.getState();
+          
+          if (output === 'mobile') {
+            // Mobile playback starting - pause PC
+            console.log('[Output] Switching to mobile playback');
+            playerStore.pause();
+          } else if (output === 'desktop') {
+            // Desktop playback resuming
+            console.log('[Output] Switching to desktop playback');
+            // Note: resume is handled by the mobile app stopping, not here
+          }
+        }),
       ]);
 
       return () => {

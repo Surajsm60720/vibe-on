@@ -17,6 +17,28 @@ import {
     IconShuffle,
 } from './Icons';
 
+// Icon for speakers/audio output
+function IconSpeaker({ size = 24 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+            <circle cx="12" cy="14" r="4" />
+            <line x1="12" y1="6" x2="12" y2="6.01" />
+        </svg>
+    );
+}
+
+// Icon for mobile/phone
+function IconMobile({ size = 24 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+            <line x1="12" y1="18" x2="12.01" y2="18" />
+        </svg>
+    );
+}
+
+// --- Animation Constants ---
 // Repeat icon component
 function IconRepeat({ size = 24, mode = 'off' }: { size?: number; mode?: 'off' | 'all' | 'one' }) {
     return (
@@ -89,7 +111,7 @@ export function PlayerBar() {
     const {
         status, pause, resume, setVolume, refreshStatus, nextTrack, prevTrack,
         getCurrentTrackIndex, library, playFile, seek, repeatMode, cycleRepeatMode,
-        error, setError, isShuffled, toggleShuffle, favorites, toggleFavorite
+        error, setError, isShuffled, toggleShuffle, favorites, toggleFavorite, audioOutput, setAudioOutput
     } = usePlayerStore();
     const { albumArtStyle, expandedArtMode } = useSettingsStore();
     const { state, track, position_secs, volume } = status;
@@ -525,7 +547,35 @@ export function PlayerBar() {
                                         <IconRepeat size={22} mode={repeatMode} />
                                     </button>
 
-                                    <div className="flex items-center gap-2 group relative">
+                                    {/* Queue Button - Only in expanded mode? Or always? Assuming upstream layout */}
+                                    {/* Actually upstream used OrganicControlButton which is not defined in HEAD/upstream diff shown here? */}
+                                    {/* Wait, OrganicControlButton is used in upstream but I don't see its definition in the file snippet I read? */}
+                                    {/* Ah, I might be missing OrganicControlButton definition if it was imported or defined elsewhere. */}
+                                    {/* Checking imports... No OrganicControlButton imported. */}
+                                    {/* It might be defined in the file but I missed it? Or it's a conflict I missed? */}
+                                    {/* Let's look at lines 76+. ExpressiveControlButton is defined. OrganicControlButton? */}
+                                    {/* If I don't have OrganicControlButton, I should use ExpressiveControlButton or define it. */}
+                                    {/* Or maybe I should just keep HEAD's simplified volume control if I'm unsure. */}
+                                    {/* But upstream adds Mobile/Desktop toggle. */}
+                                    {/* Let's check if OrganicControlButton is used in upstream lines. Yes lines 569, 580. */}
+                                    {/* If it's not defined, the code will break. */}
+                                    {/* I will assume ExpressiveControlButton can be used or I should check if it was added. */}
+                                    {/* Let's use HEAD layout for volume but add the output selector using ExpressiveControlButton pattern? */}
+                                    {/* Or better, copy upstream's logic but use standard buttons if component missing. */}
+                                    {/* Actually, looking at upstream diff, it uses OrganicControlButton. */}
+                                    {/* I will assume OrganicControlButton is NOT available since I didn't see it added. */}
+                                    {/* So I will convert them to simple buttons or ExpressiveControlButton. */}
+
+                                    {/* Audio Output Selector */}
+                                    <button
+                                        onClick={() => setAudioOutput(audioOutput === 'desktop' ? 'mobile' : 'desktop')}
+                                        className={`p-2 rounded-full transition-colors ${audioOutput === 'mobile' ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface'}`}
+                                        title={audioOutput === 'desktop' ? 'Playing on Desktop' : 'Playing on Mobile'}
+                                    >
+                                        {audioOutput === 'desktop' ? <IconSpeaker size={22} /> : <IconMobile size={22} />}
+                                    </button>
+
+                                    <div className="flex items-center gap-2 ml-2 group relative">
                                         <IconVolume size={24} className="text-on-surface-variant" />
                                         <input
                                             type="range" min="0" max="1" step="0.01" value={volume}

@@ -11,16 +11,16 @@ const BAND_LABELS = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '1
 
 // Default preset IDs that cannot be deleted
 const DEFAULT_PRESET_IDS = new Set([
-    'flat', 'acoustic', 'classical', 'dance', 'deep', 'electronic', 'hip-hop', 
-    'jazz', 'latin', 'loudness', 'lounge', 'piano', 'pop', 'r&b', 'rock', 
-    'small-speakers', 'spoken-word', 'increase-bass', 'reduce-bass', 
+    'flat', 'acoustic', 'classical', 'dance', 'deep', 'electronic', 'hip-hop',
+    'jazz', 'latin', 'loudness', 'lounge', 'piano', 'pop', 'r&b', 'rock',
+    'small-speakers', 'spoken-word', 'increase-bass', 'reduce-bass',
     'increase-treble', 'reduce-treble', 'increase-vocals'
 ]);
 
 
 const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-    const { eqGains, setEqGain, presets, applyPreset, addPreset, removePreset, activePresetId } = usePlayerStore();
-    
+    const { eqGains, setEqGain, presets, applyPreset, removePreset, activePresetId } = usePlayerStore();
+
     // State for save preset dialog
     const [showSaveDialog, setShowSaveDialog] = useState(false);
     const [presetName, setPresetName] = useState('');
@@ -36,36 +36,36 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         setPresetName('');
         setShowSaveDialog(true);
     };
-    
+
     const confirmSavePreset = () => {
         if (!presetName.trim()) {
             setSaveMessage({ type: 'error', text: 'Please enter a preset name' });
             setTimeout(() => setSaveMessage(null), 3000);
             return;
         }
-        
+
         // Create and apply the new preset immediately
         const newId = `custom-${Date.now()}`;
         const newPreset = { id: newId, name: presetName.trim(), gains: [...eqGains] };
-        
+
         usePlayerStore.setState(state => ({
             presets: [...state.presets, newPreset],
             activePresetId: newId
         }));
-        
+
         setShowSaveDialog(false);
         setPresetName('');
         setSaveMessage({ type: 'success', text: `Preset "${presetName.trim()}" saved!` });
         setTimeout(() => setSaveMessage(null), 3000);
     };
-    
+
     const handleDeletePreset = (presetId: string, presetNameToDelete: string) => {
         if (DEFAULT_PRESET_IDS.has(presetId)) {
             setSaveMessage({ type: 'error', text: 'Cannot delete built-in presets' });
             setTimeout(() => setSaveMessage(null), 3000);
             return;
         }
-        
+
         if (confirm(`Delete preset "${presetNameToDelete}"?`)) {
             removePreset(presetId);
             // If we deleted the active preset, switch to Flat
@@ -83,10 +83,10 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             // Get current preset name if one is selected
             const currentPreset = presets.find(p => p.id === activePresetId);
             const defaultName = currentPreset ? `${currentPreset.name.replace(/\s+/g, '-').toLowerCase()}-preset.json` : 'my-eq-preset.json';
-            
+
             // Get downloads directory as default location
             const downloadsPath = await downloadDir();
-            
+
             const result = await save({
                 filters: [{
                     name: 'JSON Preset',
@@ -102,7 +102,7 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     exportedAt: new Date().toISOString()
                 }, null, 2);
                 await writeTextFile(result, content);
-                
+
                 // Show success message with path
                 setSaveMessage({ type: 'success', text: `Exported to: ${result}` });
                 setTimeout(() => setSaveMessage(null), 5000);
@@ -142,19 +142,19 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     // Add the preset and immediately apply it
                     const newId = `custom-${Date.now()}`;
                     const newPreset = { id: newId, name: importedName, gains: [...data.gains] };
-                    
+
                     // Manually set the preset and apply it via store
                     usePlayerStore.setState(state => ({
                         presets: [...state.presets, newPreset],
                         activePresetId: newId,
                         eqGains: [...data.gains]
                     }));
-                    
+
                     // Apply gains to backend
                     data.gains.forEach((gain: number, index: number) => {
                         setEqGain(index, gain);
                     });
-                    
+
                     setSaveMessage({ type: 'success', text: `Imported & applied "${importedName}"!` });
                     setTimeout(() => setSaveMessage(null), 3000);
                 } else {
@@ -212,7 +212,7 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                             </button>
                         </div>
                     </div>
-                    
+
                     {/* Toast Message */}
                     <AnimatePresence>
                         {saveMessage && (
@@ -220,11 +220,10 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                 initial={{ opacity: 0, y: -10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
-                                className={`px-4 py-2 rounded-xl text-body-medium ${
-                                    saveMessage.type === 'success' 
-                                        ? 'bg-primary/20 text-primary' 
+                                className={`px-4 py-2 rounded-xl text-body-medium ${saveMessage.type === 'success'
+                                        ? 'bg-primary/20 text-primary'
                                         : 'bg-error/20 text-error'
-                                }`}
+                                    }`}
                             >
                                 {saveMessage.text}
                             </motion.div>
@@ -256,7 +255,7 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                     </optgroup>
                                 )}
                             </select>
-                            
+
                             {/* Delete button for custom presets */}
                             {activePresetId && !DEFAULT_PRESET_IDS.has(activePresetId) && (
                                 <button
@@ -273,13 +272,13 @@ const Equalizer: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                 </button>
                             )}
                         </div>
-                        
+
                         <div className="w-px h-6 bg-outline-variant/30" />
                         <button onClick={handleSavePreset} className="text-label-medium text-primary hover:text-primary/80 px-2 py-1 rounded-lg hover:bg-primary/10 transition-colors">Save</button>
                         <button onClick={handleImport} className="text-label-medium text-on-surface-variant hover:text-on-surface px-2 py-1 rounded-lg hover:bg-surface-container-highest transition-colors">Import</button>
                         <button onClick={handleExport} className="text-label-medium text-on-surface-variant hover:text-on-surface px-2 py-1 rounded-lg hover:bg-surface-container-highest transition-colors">Export</button>
                     </div>
-                    
+
                     {/* Save Preset Dialog */}
                     <AnimatePresence>
                         {showSaveDialog && (
@@ -594,10 +593,10 @@ const RotaryKnob = ({
         // Support both vertical AND horizontal drag (use whichever is larger)
         const deltaX = e.clientX - startPos.current.x;
         const deltaY = startPos.current.y - e.clientY; // Invert Y so up = increase
-        
+
         // Use the larger delta for more intuitive control
         const delta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
-        
+
         // Sensitivity: 150 pixels = full range
         const sensitivity = 150;
         const deltaVal = (delta / sensitivity) * range;
@@ -632,17 +631,15 @@ const RotaryKnob = ({
     return (
         <div className="flex flex-col items-center gap-3 select-none group">
             {/* Value display - always visible when interacting */}
-            <div className={`h-6 text-label-medium font-mono transition-all duration-150 ${
-                isDragging ? 'text-primary scale-110' : 'text-on-surface-variant'
-            }`}>
+            <div className={`h-6 text-label-medium font-mono transition-all duration-150 ${isDragging ? 'text-primary scale-110' : 'text-on-surface-variant'
+                }`}>
                 {format(value)}
             </div>
 
             <div
                 ref={knobRef}
-                className={`relative w-20 h-20 cursor-grab active:cursor-grabbing touch-none transition-transform ${
-                    isDragging ? 'scale-105' : 'hover:scale-102'
-                }`}
+                className={`relative w-20 h-20 cursor-grab active:cursor-grabbing touch-none transition-transform ${isDragging ? 'scale-105' : 'hover:scale-102'
+                    }`}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
@@ -677,26 +674,23 @@ const RotaryKnob = ({
                 </svg>
 
                 {/* Knob body */}
-                <div className={`absolute inset-2 rounded-full transition-all ${
-                    isDragging 
-                        ? 'bg-surface-container-high shadow-lg' 
+                <div className={`absolute inset-2 rounded-full transition-all ${isDragging
+                        ? 'bg-surface-container-high shadow-lg'
                         : 'bg-surface-container shadow-md group-hover:bg-surface-container-high'
-                }`}>
+                    }`}>
                     {/* Center dot */}
                     <div className="absolute inset-0 flex items-center justify-center">
-                        <div className={`w-2 h-2 rounded-full transition-colors ${
-                            isDragging ? 'bg-primary' : 'bg-on-surface-variant/30'
-                        }`} />
+                        <div className={`w-2 h-2 rounded-full transition-colors ${isDragging ? 'bg-primary' : 'bg-on-surface-variant/30'
+                            }`} />
                     </div>
-                    
+
                     {/* Indicator line */}
-                    <div 
+                    <div
                         className="absolute inset-0 flex items-center justify-center"
                         style={{ transform: `rotate(${angle}deg)` }}
                     >
-                        <div className={`absolute top-2 w-1 h-4 rounded-full transition-colors ${
-                            isDragging ? 'bg-primary' : 'bg-on-surface-variant group-hover:bg-primary/70'
-                        }`} />
+                        <div className={`absolute top-2 w-1 h-4 rounded-full transition-colors ${isDragging ? 'bg-primary' : 'bg-on-surface-variant group-hover:bg-primary/70'
+                            }`} />
                     </div>
                 </div>
             </div>

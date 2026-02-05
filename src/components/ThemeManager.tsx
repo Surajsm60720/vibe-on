@@ -12,6 +12,7 @@ export function ThemeManager() {
     // Get cover URL
     const currentIndex = library.findIndex(t => t.path === track?.path);
     const currentLibraryTrack = currentIndex >= 0 ? library[currentIndex] : null;
+    // Desktop uses local files
     const coverUrl = useCoverArt(currentLibraryTrack?.cover_image);
 
     // Extract colors using new M3 Logic

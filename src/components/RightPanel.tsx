@@ -60,6 +60,7 @@ export function RightPanel() {
     const { library } = usePlayerStore();
     const currentIndex = library.findIndex(t => t.path === track?.path);
     const currentLibraryTrack = currentIndex >= 0 ? library[currentIndex] : null;
+    // Desktop uses local files
     const coverUrl = useCoverArt(currentLibraryTrack?.cover_image);
 
     // Determine what to show in the bottom section

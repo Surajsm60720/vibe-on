@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 
 export type MobileConnectionStatus = 'disconnected' | 'searching' | 'connecting' | 'connected';
 
@@ -250,8 +249,7 @@ export const useMobileStore = create<MobileStore>()(
                 // Initial scan
                 poll();
 
-                // Set up interval (stored in window for cleanup)
-                const intervalId = setInterval(poll, 3000);
+                const intervalId = setInterval(poll, 3000) as unknown as number;
                 (window as unknown as { __mobileDiscoveryInterval?: number }).__mobileDiscoveryInterval = intervalId;
             },
 
@@ -264,33 +262,10 @@ export const useMobileStore = create<MobileStore>()(
             },
 
             setupListeners: async () => {
-                // Listen for connection events from Rust backend
-                await listen('mobile_client_connected', (event: any) => {
-                    console.log('[Mobile] Connected event:', event);
-                    const clientInput = event.payload;
-
-                    const device: ConnectedDevice = {
-                        id: clientInput.client_id,
-                        name: clientInput.client_name,
-                        ip: 'unknown',
-                        port: get().serverPort,
-                        connectedAt: Date.now()
-                    };
-
-                    set({
-                        status: 'connected',
-                        connectedDevice: device,
-                        lastConnectedDevice: device,
-                    });
-                });
-
-                await listen('mobile_client_disconnected', (event: any) => {
-                    console.log('[Mobile] Disconnected event:', event);
-                    const current = get().connectedDevice;
-                    if (current && current.id === event.payload.client_id) {
-                        set({ status: get().serverRunning ? 'searching' : 'disconnected', connectedDevice: null });
-                    }
-                });
+                // Note: Listeners are already set up in App.tsx
+                // This function is kept for backwards compatibility but does nothing
+                // The actual listeners are set up globally in App.tsx via useEffect
+                console.log('[Mobile] Listeners already set up in App.tsx');
             },
         }),
         {

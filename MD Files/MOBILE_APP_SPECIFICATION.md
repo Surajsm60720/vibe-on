@@ -187,27 +187,21 @@ class P2PAudioPlayer {
 ### Primary Stack (Kotlin + Jetpack Compose)
 ```kotlin
 // Core
-- Language: Kotlin 2.0+
+- Language: Kotlin 1.9+
 - UI: Jetpack Compose (Material 3)
-- Architecture: MVVM + Clean Architecture
+- Architecture: MVVM + Clean Architecture + UniFFI Bridge
 
 // Networking
-- HTTP/REST: Retrofit + OkHttp
-- WebSocket: OkHttp WebSocket
-- P2P: libp2p-android or WebRTC native
-- Serialization: kotlinx.serialization or Moshi
+- P2P: Shared Rust Core (libp2p + QUIC) via UniFFI
+- Discovery: Android NsdManager
 
 // Audio
-- Decoder: MediaCodec (platform native)
-- Playback: AudioTrack + ExoPlayer (for buffering)
-- Background: MediaSessionService + MediaNotification
+- Decoder: MediaCodec (platform native) via Media3
+- Playback: ExoPlayer with custom P2PDataSource
+- Background: MediaSessionService
 
-// Storage
-- Database: Room (for cache, queue, settings)
-- Preferences: DataStore
-
-// Discovery
-- mDNS: JmDNS or Android NSD API
+// Location
+- Project Path: `../vibe-on-android` relative to desktop repo
 
 // Dependencies
 dependencies {

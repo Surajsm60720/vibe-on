@@ -167,6 +167,12 @@ pub struct StreamParams {
     pub start: Option<u64>,
 }
 
+/// Stream range params for HTTP Range requests
+#[derive(Debug, Deserialize)]
+pub struct RangeParams {
+    pub path: String,
+}
+
 /// Health check endpoint
 pub async fn health_check() -> Json<HealthResponse> {
     Json(HealthResponse {
@@ -662,7 +668,71 @@ fn extract_cover_from_file(path: &str) -> Option<(Vec<u8>, &'static str)> {
     None
 }
 
-/// Stream audio to mobile client
+/// Stream audio to mobile client from a specific file path
+/// Supports HTTP Range requests for seeking
+pub async fn stream_audio_file(
+    Path(encoded_path): Path<String>,
+) -> Result<Response, StatusCode> {
+    
+    // Decode the path
+    let track_path = urlencoding::decode(&encoded_path)
+        .map_err(|_| StatusCode::BAD_REQUEST)?
+        .to_string();
+        
+    log::info!("📱 Streaming request for: {}", track_path);
+    
+    // Validate path exists and is accessible
+    if !std::path::Path::new(&track_path).exists() {
+        log::error!("❌ Stream file not found: {}", track_path);
+        return Err(StatusCode::NOT_FOUND);
+    }
+    
+    // Read file metadata for size
+    let file_metadata = tokio::fs::metadata(&track_path).await
+        .map_err(|e| {
+            log::error!("❌ Failed to get metadata for {}: {}", track_path, e);
+            StatusCode::NOT_FOUND
+        })?;
+    let file_size = file_metadata.len();
+    
+    // Read the entire file
+    let data = match tokio::fs::read(&track_path).await {
+        Ok(d) => d,
+        Err(e) => {
+            log::error!("❌ Failed to read file {}: {}", track_path, e);
+            return Err(StatusCode::NOT_FOUND);
+        }
+    };
+    
+    log::info!("✅ Serving {} bytes for {}", file_size, track_path);
+    
+    // Determine content type from extension
+    let content_type = if track_path.ends_with(".flac") {
+        "audio/flac"
+    } else if track_path.ends_with(".mp3") {
+        "audio/mpeg"
+    } else if track_path.ends_with(".m4a") || track_path.ends_with(".aac") {
+        "audio/aac"
+    } else if track_path.ends_with(".ogg") || track_path.ends_with(".opus") {
+        "audio/ogg"
+    } else if track_path.ends_with(".wav") {
+        "audio/wav"
+    } else {
+        "application/octet-stream"
+    };
+    
+    // Build response with proper headers for streaming
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_LENGTH, file_size.to_string())
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CACHE_CONTROL, "public, max-age=604800")
+        .body(Body::from(data))
+        .unwrap())
+}
+
+/// Stream audio to mobile client (legacy endpoint for current track)
 pub async fn stream_audio(
     State(state): State<Arc<ServerState>>,
     Query(params): Query<StreamParams>,

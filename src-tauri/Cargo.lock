@@ -8192,6 +8192,7 @@ dependencies = [
  "discord-rich-presence",
  "futures",
  "hostname",
+ "if-addrs 0.13.4",
  "libp2p",
  "librqbit",
  "lofty",

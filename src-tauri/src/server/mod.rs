@@ -35,7 +35,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            port: 5443,
+            port: 5000,
             server_name: crate::p2p::get_device_name(),
         }
     }
@@ -49,6 +49,8 @@ pub struct ServerState {
     pub event_tx: broadcast::Sender<ServerEvent>,
     /// Connected WebSocket clients
     pub clients: RwLock<Vec<ConnectedClient>>,
+    /// Active output device ("desktop" or "mobile")
+    pub active_output: RwLock<String>,
     /// Server configuration
     pub config: ServerConfig,
 }
@@ -60,6 +62,7 @@ impl ServerState {
             app_handle,
             event_tx,
             clients: RwLock::new(Vec::new()),
+            active_output: RwLock::new("desktop".to_string()),
             config,
         }
     }
@@ -228,7 +231,8 @@ pub async fn start_server(
         .route("/api/lyrics/*path", get(get_lyrics))
         // Cover art
         .route("/cover/*path", get(get_cover))
-        // Audio stream
+        // Audio streaming
+        .route("/stream/:path", get(stream_audio_file))
         .route("/stream", get(stream_audio))
         // WebSocket
         .route("/control", get(websocket_handler))
@@ -287,20 +291,37 @@ async fn advertise_mdns(server_name: &str, port: u16) -> Result<(), Box<dyn std:
     let service_type = "_vibe-on._tcp.local.";
     let instance_name = server_name;
     
-    // Create service info with auto address detection
-    let mut service_info = ServiceInfo::new(
+    // Get primary IPv4 address (exclude loopback and link-local)
+    let ipv4_addr = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .find_map(|iface| {
+            let addr = iface.addr.ip();
+            // Only IPv4, not loopback, not link-local
+            if addr.is_ipv4() && !addr.is_loopback() {
+                Some(addr.to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "".to_string());
+    
+    log::info!("mDNS: Using IPv4 address: {}", ipv4_addr);
+    
+    // Create service info with specific IPv4 address as hostname
+    let service_info = ServiceInfo::new(
         service_type,
         instance_name,
         &format!("{}.local.", instance_name),
-        "", // Auto-detect IP
+        &ipv4_addr, // Use IPv4 address directly
         port,
         &[("version", "1")][..]
-    )?.enable_addr_auto();
+    )?;
     
     // Register the service
     mdns.register(service_info)?;
     
-    log::info!("mDNS: Service registered successfully");
+    log::info!("mDNS: Service registered successfully with IPv4 address");
     
     // Keep the advertisement running
     loop {

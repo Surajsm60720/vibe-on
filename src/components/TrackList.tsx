@@ -33,6 +33,7 @@ function TrackRow({ track, index, isActive, isPlaying, onClick, onContextMenu }:
     onClick: () => void,
     onContextMenu: (e: React.MouseEvent) => void
 }) {
+    // Desktop uses local files only
     const coverUrl = useCoverArt(track.cover_image);
     const isFavorite = usePlayerStore(state => state.isFavorite(track.path));
     const toggleFavorite = usePlayerStore(state => state.toggleFavorite);
