@@ -13,7 +13,7 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::{ConnectedClient, ServerEvent, ServerState};
+use super::{ConnectedClient, ServerEvent, ServerState, TrackSummary};
 
 /// Client to server messages
 #[derive(Debug, Clone, Deserialize)]
@@ -152,7 +152,7 @@ pub enum ServerMessage {
     #[serde(rename = "QueueUpdate")]
     #[serde(rename_all = "camelCase")]
     QueueUpdate {
-        queue: Vec<String>,
+        queue: Vec<super::TrackSummary>,
         #[serde(rename = "current_index")]
         current_index: i32,
     },
@@ -211,7 +211,7 @@ impl From<ServerEvent> for ServerMessage {
                 ServerMessage::Status { volume, shuffle, repeat_mode, output }
             }
             ServerEvent::QueueUpdate { tracks } => {
-                ServerMessage::QueueUpdate { queue: tracks.iter().map(|t| t.path.clone()).collect(), current_index: 0 } // Mobile expects list of strings (paths)
+                ServerMessage::QueueUpdate { queue: tracks, current_index: 0 }
             }
             ServerEvent::Lyrics { track_path, has_synced, synced_lyrics, plain_lyrics, instrumental } => {
                 ServerMessage::Lyrics { track_path, has_synced, synced_lyrics, plain_lyrics, instrumental }
@@ -466,116 +466,34 @@ async fn handle_client_message(
         ClientMessage::Next => {
             log::info!("📱 Next track command from mobile ({})", client_id);
             
-            // Get current track path and next track path (must be done before await)
-            let next_track = {
-                let current_track = {
-                    if let Ok(player_guard) = app_state.player.lock() {
-                        if let Some(ref player) = *player_guard {
-                            player.get_status().track.map(|t| t.path)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                };
+            let (next_track_path, next_index) = {
+                let queue = app_state.queue.lock().unwrap();
+                let mut index_guard = app_state.current_queue_index.lock().unwrap();
+                let repeat_mode = app_state.repeat_mode.lock().unwrap();
                 
-                // Get all tracks and find next one
-                if let Ok(db_guard) = app_state.db.lock() {
-                    if let Some(ref db) = *db_guard {
-                        if let Ok(all_tracks) = db.get_all_tracks() {
-                            if !all_tracks.is_empty() {
-                                if let Some(current_path) = &current_track {
-                                    let current_idx = all_tracks.iter().position(|t| &t.path == current_path);
-                                    if let Some(idx) = current_idx {
-                                        if idx + 1 < all_tracks.len() {
-                                            Some(all_tracks[idx + 1].path.clone())
-                                        } else {
-                                            Some(all_tracks[0].path.clone())
-                                        }
-                                    } else {
-                                        Some(all_tracks[0].path.clone())
-                                    }
-                                } else {
-                                    Some(all_tracks[0].path.clone())
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
+                if queue.is_empty() {
+                    (None, 0)
                 } else {
-                    None
+                    let mut next_idx = *index_guard + 1;
+                    if next_idx >= queue.len() {
+                        if *repeat_mode == "all" {
+                            next_idx = 0;
+                        } else {
+                            // "off" or "one" (one is handled by naturally repeated play)
+                            // If user clicked NEXT, we stop or loop depending on mode
+                            next_idx = 0; // Wrap around for manual Next click
+                        }
+                    }
+                    *index_guard = next_idx;
+                    (Some(queue[next_idx].path.clone()), next_idx)
                 }
             };
             
-            if let Some(next_track_path) = next_track {
-                // Check if we need to stream to mobile
-                let is_mobile = {
-                    state.active_output.read().await.as_str() == "mobile"
-                };
-
-                // Play or load the next track
-                {
-                    if let Ok(mut player_guard) = app_state.player.lock() {
-                        if let Some(ref player) = *player_guard {
-                            if is_mobile {
-                                let _ = player.load_file(&next_track_path);
-                                log::info!("📱 Loading (mobile) next track: {}", next_track_path);
-                            } else {
-                                let _ = player.play_file(&next_track_path);
-                                log::info!("▶️ Playing next track: {}", next_track_path);
-                            }
-                        }
-                    }
-                }
-                
-                // Send acknowledgment
-                let _ = reply_tx.send(ServerMessage::Error {
-                    message: "ok:next".to_string(),
-                }).await;
-                
-                if is_mobile {
-                    // Send stream URL to mobile
-                    let (track_path, position, stream_url) = {
-                        let player_guard = app_state.player.lock().ok();
-                        match player_guard.as_ref().and_then(|p| p.as_ref()) {
-                            Some(player) => {
-                                let status = player.get_status();
-                                match status.track {
-                                    Some(track) => {
-                                        let position = 0.0; // Start from beginning for new track
-                                        let local_ip = local_ip().unwrap_or("127.0.0.1".to_string());
-                                        let port = state.config.port;
-                                        let encoded_path = urlencoding::encode(&track.path).to_string();
-                                        let url = format!("http://{}:{}/stream/{}", local_ip, port, encoded_path);
-                                        (Some(track.path), position, url)
-                                    }
-                                    None => (None, 0.0, String::new())
-                                }
-                            }
-                            None => (None, 0.0, String::new())
-                        }
-                    };
-                    
-                    if track_path.is_some() {
-                        log::info!("🎵 Sending next track stream via Handoff: {}", stream_url);
-                        let _ = reply_tx.send(ServerMessage::HandoffPrepare { 
-                            sample: 0,
-                            url: stream_url 
-                        }).await;
-                    }
-                }
-
-                send_current_status_internal(state, &app_state, &reply_tx).await;
+            if let Some(path) = next_track_path {
+                play_track_internal(state, &app_state, path, &reply_tx).await;
             } else {
-                log::error!("❌ Could not play next track - no tracks available");
                 let _ = reply_tx.send(ServerMessage::Error {
-                    message: "No tracks available".to_string(),
+                    message: "Queue is empty".to_string(),
                 }).await;
             }
         }
@@ -583,117 +501,25 @@ async fn handle_client_message(
         ClientMessage::Previous => {
             log::info!("📱 Previous track command from mobile ({})", client_id);
             
-            // Get current track path and previous track path (must be done before await)
-            let prev_track = {
-                let current_track = {
-                    if let Ok(player_guard) = app_state.player.lock() {
-                        if let Some(ref player) = *player_guard {
-                            player.get_status().track.map(|t| t.path)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                };
+            let (prev_track_path, prev_index) = {
+                let queue = app_state.queue.lock().unwrap();
+                let mut index_guard = app_state.current_queue_index.lock().unwrap();
                 
-                // Get all tracks and find previous one
-                if let Ok(db_guard) = app_state.db.lock() {
-                    if let Some(ref db) = *db_guard {
-                        if let Ok(all_tracks) = db.get_all_tracks() {
-                            if !all_tracks.is_empty() {
-                                if let Some(current_path) = &current_track {
-                                    let current_idx = all_tracks.iter().position(|t| &t.path == current_path);
-                                    if let Some(idx) = current_idx {
-                                        if idx > 0 {
-                                            Some(all_tracks[idx - 1].path.clone())
-                                        } else {
-                                            Some(all_tracks[all_tracks.len() - 1].path.clone())
-                                        }
-                                    } else {
-                                        Some(all_tracks[all_tracks.len() - 1].path.clone())
-                                    }
-                                } else {
-                                    Some(all_tracks[all_tracks.len() - 1].path.clone())
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
+                if queue.is_empty() {
+                    (None, 0)
                 } else {
-                    None
+                    let mut prev_idx = if *index_guard == 0 {
+                        queue.len() - 1
+                    } else {
+                        *index_guard - 1
+                    };
+                    *index_guard = prev_idx;
+                    (Some(queue[prev_idx].path.clone()), prev_idx)
                 }
             };
             
-            if let Some(prev_track_path) = prev_track {
-                // Check if we need to stream to mobile
-                let is_mobile = {
-                    state.active_output.read().await.as_str() == "mobile"
-                };
-
-                // Play or load the previous track
-                {
-                    if let Ok(mut player_guard) = app_state.player.lock() {
-                        if let Some(ref player) = *player_guard {
-                            if is_mobile {
-                                let _ = player.load_file(&prev_track_path);
-                                log::info!("📱 Loading (mobile) previous track: {}", prev_track_path);
-                            } else {
-                                let _ = player.play_file(&prev_track_path);
-                                log::info!("⏮️ Playing previous track: {}", prev_track_path);
-                            }
-                        }
-                    }
-                }
-                
-                // Send acknowledgment
-                let _ = reply_tx.send(ServerMessage::Error {
-                    message: "ok:previous".to_string(),
-                }).await;
-                
-                if is_mobile {
-                    // Send stream URL to mobile
-                    let (track_path, position, stream_url) = {
-                        let player_guard = app_state.player.lock().ok();
-                        match player_guard.as_ref().and_then(|p| p.as_ref()) {
-                            Some(player) => {
-                                let status = player.get_status();
-                                match status.track {
-                                    Some(track) => {
-                                        let position = 0.0; // Start from beginning
-                                        let local_ip = local_ip().unwrap_or("127.0.0.1".to_string());
-                                        let port = state.config.port;
-                                        let encoded_path = urlencoding::encode(&track.path).to_string();
-                                        let url = format!("http://{}:{}/stream/{}", local_ip, port, encoded_path);
-                                        (Some(track.path), position, url)
-                                    }
-                                    None => (None, 0.0, String::new())
-                                }
-                            }
-                            None => (None, 0.0, String::new())
-                        }
-                    };
-                    
-                    if track_path.is_some() {
-                        log::info!("🎵 Sending prev track stream via Handoff: {}", stream_url);
-                        let _ = reply_tx.send(ServerMessage::HandoffPrepare { 
-                            sample: 0,
-                            url: stream_url 
-                        }).await;
-                    }
-                }
-
-                send_current_status_internal(state, &app_state, &reply_tx).await;
-            } else {
-                log::error!("❌ Could not play previous track - no tracks available");
-                let _ = reply_tx.send(ServerMessage::Error {
-                    message: "No tracks available".to_string(),
-                }).await;
+            if let Some(path) = prev_track_path {
+                play_track_internal(state, &app_state, path, &reply_tx).await;
             }
         }
         
@@ -731,72 +557,73 @@ async fn handle_client_message(
         
         ClientMessage::PlayTrack { path } => {
             log::info!("📱 PlayTrack command from mobile ({}): {}", client_id, path);
-            
-            let is_mobile = {
-                state.active_output.read().await.as_str() == "mobile"
-            };
+            play_track_internal(state, &app_state, path, &reply_tx).await;
+        }
 
-            let play_result = {
-                if let Ok(mut player_guard) = app_state.player.lock() {
-                    if let Some(ref mut player) = *player_guard {
-                        if is_mobile {
-                            player.load_file(&path)
-                        } else {
-                            player.play_file(&path)
-                        }
+        ClientMessage::SetQueue { paths } => {
+            log::info!("📱 SetQueue command from mobile ({}) with {} tracks", client_id, paths.len());
+            
+            let tracks = {
+                let db_guard = app_state.db.lock().unwrap();
+                if let Some(ref db) = *db_guard {
+                    if let Ok(all_tracks) = db.get_all_tracks() {
+                        paths.iter().filter_map(|p| {
+                            all_tracks.iter().find(|t| &t.path == p).cloned()
+                        }).collect::<Vec<_>>()
                     } else {
-                        Err("No player available".to_string())
+                         Vec::new()
                     }
                 } else {
-                    Err("Failed to lock player".to_string())
+                    Vec::new()
                 }
             };
-            
-            if let Err(e) = play_result {
-                log::error!("Failed to play track: {}", e);
-                let _ = reply_tx.send(ServerMessage::Error {
-                    message: format!("Failed to play track: {}", e),
-                }).await;
-                return;
-            }
-            
-            // Send acknowledgment
-            let _ = reply_tx.send(ServerMessage::Error {
-                message: "ok:playTrack".to_string(),
-            }).await;
 
-            if is_mobile {
-                // Send stream URL to mobile
-                let (track_path, position, stream_url) = {
-                    let player_guard = app_state.player.lock().ok();
-                    match player_guard.as_ref().and_then(|p| p.as_ref()) {
-                        Some(player) => {
-                            let status = player.get_status();
-                            match status.track {
-                                Some(track) => {
-                                    let position = 0.0; // Start from beginning
-                                    let local_ip = local_ip().unwrap_or("127.0.0.1".to_string());
-                                    let port = state.config.port;
-                                    let encoded_path = urlencoding::encode(&track.path).to_string();
-                                    let url = format!("http://{}:{}/stream/{}", local_ip, port, encoded_path);
-                                    (Some(track.path), position, url)
-                                }
-                                None => (None, 0.0, String::new())
-                            }
-                        }
-                        None => (None, 0.0, String::new())
-                    }
+            {
+                let mut queue = app_state.queue.lock().unwrap();
+                let mut index = app_state.current_queue_index.lock().unwrap();
+                *queue = tracks;
+                *index = 0;
+            }
+
+            // Sync with all clients
+            broadcast_queue_update(state, &app_state).await;
+        }
+
+        ClientMessage::AddToQueue { path } => {
+            log::info!("📱 AddToQueue command from mobile: {}", path);
+            let track = {
+                let db_guard = app_state.db.lock().unwrap();
+                if let Some(ref db) = *db_guard {
+                    if let Ok(all_tracks) = db.get_all_tracks() {
+                        all_tracks.into_iter().find(|t| t.path == path)
+                    } else { None }
+                } else { None }
+            };
+
+            if let Some(t) = track {
+                app_state.queue.lock().unwrap().push(t);
+                broadcast_queue_update(state, &app_state).await;
+            }
+        }
+
+        ClientMessage::ToggleShuffle => {
+            {
+                let mut shuffle = app_state.shuffle.lock().unwrap();
+                *shuffle = !*shuffle;
+            }
+            send_current_status_internal(state, &app_state, &reply_tx).await;
+        }
+
+        ClientMessage::CycleRepeat => {
+            {
+                let mut repeat = app_state.repeat_mode.lock().unwrap();
+                *repeat = match repeat.as_str() {
+                    "off" => "all".to_string(),
+                    "all" => "one".to_string(),
+                    "one" => "off".to_string(),
+                    _ => "off".to_string(),
                 };
-                
-                if track_path.is_some() {
-                    log::info!("🎵 Sending track stream via Handoff: {}", stream_url);
-                    let _ = reply_tx.send(ServerMessage::HandoffPrepare { 
-                        sample: 0,
-                        url: stream_url 
-                    }).await;
-                }
             }
-
             send_current_status_internal(state, &app_state, &reply_tx).await;
         }
         
@@ -1159,12 +986,30 @@ async fn send_current_status_internal(
     // Send Status message directly to client
     let status_msg = ServerMessage::Status {
         volume: volume as f64,
-        shuffle: false,
-        repeat_mode: "off".to_string(),
+        shuffle: *app_state.shuffle.lock().unwrap(),
+        repeat_mode: app_state.repeat_mode.lock().unwrap().clone(),
         output: active_output.clone(),
     };
     let _ = reply_tx.send(status_msg).await;
     log::debug!("✅ Sent Status to mobile client");
+
+    // Also send QueueUpdate to client
+    let queue_msg = {
+        let queue = app_state.queue.lock().unwrap();
+        let index = *app_state.current_queue_index.lock().unwrap();
+        ServerMessage::QueueUpdate {
+            queue: queue.iter().map(|t| super::TrackSummary {
+                path: t.path.clone(),
+                title: t.title.clone(),
+                artist: t.artist.clone(),
+                album: t.album.clone(),
+                duration_secs: t.duration_secs,
+                cover_url: Some(format!("/cover/{}", urlencoding::encode(&t.path))),
+            }).collect(),
+            current_index: index as i32,
+        }
+    };
+    let _ = reply_tx.send(queue_msg).await;
 
     // Emit event to Tauri frontend to refresh UI
     let _ = state.app_handle.emit("refresh-player-state", ());
@@ -1172,10 +1017,68 @@ async fn send_current_status_internal(
     // Also broadcast to all connected clients
     state.broadcast(ServerEvent::Status {
         volume: volume as f64,
-        shuffle: false,
-        repeat_mode: "off".to_string(),
+        shuffle: *app_state.shuffle.lock().unwrap(),
+        repeat_mode: app_state.repeat_mode.lock().unwrap().clone(),
         output: active_output,
     });
+}
+
+/// Helper for starting playback of a track (desktop or mobile)
+async fn play_track_internal(
+    state: &Arc<ServerState>,
+    app_state: &tauri::State<'_, crate::AppState>,
+    path: String,
+    reply_tx: &tokio::sync::mpsc::Sender<ServerMessage>,
+) {
+    let is_mobile = {
+        state.active_output.read().await.as_str() == "mobile"
+    };
+
+    if let Ok(mut player_guard) = app_state.player.lock() {
+        if let Some(ref mut player) = *player_guard {
+            if is_mobile {
+                let _ = player.load_file(&path);
+            } else {
+                let _ = player.play_file(&path);
+            }
+        }
+    }
+
+    if is_mobile {
+        let local_ip = local_ip().unwrap_or("127.0.0.1".to_string());
+        let port = state.config.port;
+        let encoded_path = urlencoding::encode(&path).to_string();
+        let url = format!("http://{}:{}/stream/{}", local_ip, port, encoded_path);
+        
+        let _ = reply_tx.send(ServerMessage::HandoffPrepare { 
+            sample: 0,
+            url 
+        }).await;
+    }
+
+    send_current_status_internal(state, &app_state, &reply_tx).await;
+}
+
+/// Broadcast queue update to all clients
+async fn broadcast_queue_update(state: &Arc<ServerState>, app_state: &tauri::State<'_, crate::AppState>) {
+    let (tracks, index) = {
+        let queue = app_state.queue.lock().unwrap();
+        let index = *app_state.current_queue_index.lock().unwrap();
+        (
+            queue.iter().map(|t| super::TrackSummary {
+                path: t.path.clone(),
+                title: t.title.clone(),
+                artist: t.artist.clone(),
+                album: t.album.clone(),
+                duration_secs: t.duration_secs,
+                cover_url: Some(format!("/cover/{}", urlencoding::encode(&t.path))),
+            }).collect::<Vec<_>>(),
+            index
+        )
+    };
+    
+    state.broadcast(ServerEvent::QueueUpdate { tracks });
+    // Note: ServerEvent::QueueUpdate should probably include current_index too, but ServerEvent enum needs update
 }
 
 /// Send current playback status (public, for periodic broadcasting from mod.rs)

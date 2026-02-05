@@ -54,6 +54,11 @@ pub struct AppState {
     p2p_manager: Arc<TokioRwLock<Option<P2PManager>>>,
     server_running: Arc<Mutex<bool>>,
     server_shutdown_tx: Arc<Mutex<Option<tokio::sync::broadcast::Sender<()>>>>,
+    // --- Queue Management ---
+    pub queue: Arc<Mutex<Vec<TrackInfo>>>,
+    pub current_queue_index: Arc<Mutex<usize>>,
+    pub shuffle: Arc<Mutex<bool>>,
+    pub repeat_mode: Arc<Mutex<String>>, // "off", "one", "all"
 }
 
 impl Default for AppState {
@@ -69,6 +74,10 @@ impl Default for AppState {
             p2p_manager: Arc::new(TokioRwLock::new(None)),
             server_running: Arc::new(Mutex::new(false)),
             server_shutdown_tx: Arc::new(Mutex::new(None)),
+            queue: Arc::new(Mutex::new(Vec::new())),
+            current_queue_index: Arc::new(Mutex::new(0)),
+            shuffle: Arc::new(Mutex::new(false)),
+            repeat_mode: Arc::new(Mutex::new("off".to_string())),
         }
     }
 }

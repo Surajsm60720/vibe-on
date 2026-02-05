@@ -204,7 +204,78 @@ pub async fn start_server(
                     let clients = broadcast_state.clients.read().await;
                     if !clients.is_empty() {
                         drop(clients); // Release lock before calling send_current_status
-                        websocket::send_current_status_with_handle(&broadcast_state, &broadcast_handle).await;
+                        
+                        // --- Autoplay Logic ---
+                        let app_state = broadcast_state.app_state();
+                        let should_autoplay = {
+                            if let Ok(player_guard) = app_state.player.lock() {
+                                if let Some(ref player) = *player_guard {
+                                    let status = player.get_status();
+                                    // If stopped naturally (meaning sink empty in player thread)
+                                    status.state == crate::audio::PlayerState::Stopped
+                                } else { false }
+                            } else { false }
+                        };
+
+                        if should_autoplay {
+                            // Check if we have anything in queue to play next
+                            let next_action = {
+                                let queue = app_state.queue.lock().unwrap();
+                                let mut index_guard = app_state.current_queue_index.lock().unwrap();
+                                let repeat_mode = app_state.repeat_mode.lock().unwrap();
+                                
+                                if queue.is_empty() {
+                                    None
+                                } else {
+                                    let mut next_idx = *index_guard + 1;
+                                    let mut do_play = true;
+                                    
+                                    if next_idx >= queue.len() {
+                                        if *repeat_mode == "all" {
+                                            next_idx = 0;
+                                        } else {
+                                            do_play = false;
+                                        }
+                                    }
+                                    
+                                    if *repeat_mode == "one" {
+                                        next_idx = *index_guard; // Keep same index
+                                        do_play = true;
+                                    }
+
+                                    if do_play {
+                                        *index_guard = next_idx;
+                                        Some(queue[next_idx].path.clone())
+                                    } else {
+                                        None
+                                    }
+                                }
+                            };
+
+                            if let Some(path) = next_action {
+                                println!("[Autoplay] Automatically playing next track: {}", path);
+                                
+                                // Trigger playback (silently on PC if mobile is active)
+                                let is_mobile = {
+                                    broadcast_state.active_output.read().await.as_str() == "mobile"
+                                };
+                                
+                                if let Ok(mut player_guard) = app_state.player.lock() {
+                                    if let Some(ref mut player) = *player_guard {
+                                        if is_mobile {
+                                            let _ = player.load_file(&path);
+                                        } else {
+                                            let _ = player.play_file(&path);
+                                        }
+                                    }
+                                }
+                                
+                                // Broadcast the update so mobile knows to fetch new stream URL if needed
+                                websocket::send_current_status_with_handle(&broadcast_state, &broadcast_handle).await;
+                            }
+                        } else {
+                            websocket::send_current_status_with_handle(&broadcast_state, &broadcast_handle).await;
+                        }
                     }
                 }
                 _ = broadcast_shutdown.recv() => {
