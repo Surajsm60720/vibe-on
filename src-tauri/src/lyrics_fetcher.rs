@@ -26,6 +26,19 @@ pub fn find_local_lrc(audio_path: &str) -> Option<LyricsResponse> {
     if lrc_path.exists() {
         println!("[Lyrics] Found local LRC file: {:?}", lrc_path);
         if let Ok(content) = std::fs::read_to_string(&lrc_path) {
+            // Check for .romaji.lrc or .trans.lrc
+            let romaji_path = path.with_extension("romaji.lrc");
+            let final_content = if romaji_path.exists() {
+                println!("[Lyrics] Found local Romaji file: {:?}", romaji_path);
+                if let Ok(romaji_content) = std::fs::read_to_string(&romaji_path) {
+                    merge_lrc_content(&content, &romaji_content)
+                } else {
+                    content
+                }
+            } else {
+                content
+            };
+
             return Some(LyricsResponse {
                 id: None,
                 track_name: path
@@ -37,7 +50,7 @@ pub fn find_local_lrc(audio_path: &str) -> Option<LyricsResponse> {
                 duration: None,
                 instrumental: Some(false),
                 plain_lyrics: None,
-                synced_lyrics: Some(content),
+                synced_lyrics: Some(final_content),
             });
         }
     }
@@ -51,6 +64,21 @@ pub fn find_local_lrc(audio_path: &str) -> Option<LyricsResponse> {
                 if lrc_path.exists() {
                     println!("[Lyrics] Found local LRC file: {:?}", lrc_path);
                     if let Ok(content) = std::fs::read_to_string(&lrc_path) {
+                        // Check for romaji variation
+                        let romaji_name = format!("{}.romaji.lrc", stem);
+                        let romaji_path = parent.join(romaji_name);
+
+                        let final_content = if romaji_path.exists() {
+                            println!("[Lyrics] Found local Romaji file: {:?}", romaji_path);
+                            if let Ok(romaji_content) = std::fs::read_to_string(&romaji_path) {
+                                merge_lrc_content(&content, &romaji_content)
+                            } else {
+                                content
+                            }
+                        } else {
+                            content
+                        };
+
                         return Some(LyricsResponse {
                             id: None,
                             track_name: Some(stem.to_string()),
@@ -59,7 +87,7 @@ pub fn find_local_lrc(audio_path: &str) -> Option<LyricsResponse> {
                             duration: None,
                             instrumental: Some(false),
                             plain_lyrics: None,
-                            synced_lyrics: Some(content),
+                            synced_lyrics: Some(final_content),
                         });
                     }
                 }
@@ -70,6 +98,65 @@ pub fn find_local_lrc(audio_path: &str) -> Option<LyricsResponse> {
     None
 }
 
+/// Helper to merge main LRC with translation/romaji LRC
+fn merge_lrc_content(main: &str, romaji: &str) -> String {
+    use std::collections::BTreeMap;
+
+    // Parse both into maps: Timestamp -> Text
+    let parse = |s: &str| -> BTreeMap<String, String> {
+        let mut map = BTreeMap::new();
+        for line in s.lines() {
+            if let Some(start) = line.find('[') {
+                if let Some(end) = line.find(']') {
+                    if end > start {
+                        let timestamp = &line[start..=end]; // Keep brackets for simple matching
+                        let text = line[end + 1..].trim();
+                        if !text.is_empty() {
+                            map.insert(timestamp.to_string(), text.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        map
+    };
+
+    let main_map = parse(main);
+    let romaji_map = parse(romaji);
+
+    // Reconstruct with merger
+    // We iterate over main_map to preserve original timing/order
+    let mut result = String::new();
+
+    // Basic heuristics: if main map is empty, just return romaji? No, return main.
+    if main_map.is_empty() {
+        return main.to_string();
+    }
+
+    // Re-read line by line to preserve headers/tags?
+    // Simplified approach: Rebuild from map.
+    // Better approach: Iterate lines of main, check if timestamp exists in romaji_map.
+
+    for line in main.lines() {
+        if let Some(start) = line.find('[') {
+            if let Some(end) = line.find(']') {
+                let timestamp = &line[start..=end];
+                let text = line[end + 1..].trim();
+
+                if let Some(romaji_text) = romaji_map.get(timestamp) {
+                    // MERGE!
+                    result.push_str(&format!("{} {} / {}\n", timestamp, text, romaji_text));
+                } else {
+                    result.push_str(&format!("{}\n", line));
+                }
+                continue;
+            }
+        }
+        result.push_str(&format!("{}\n", line));
+    }
+
+    result
+}
 /// Extract first artist from comma/feat-separated list
 fn extract_primary_artist(artist: &str) -> String {
     let separators = [
