@@ -72,9 +72,9 @@ impl FftProcessor {
             if counter % 120 == 0 {
                 // Log every ~2 seconds at 60fps
                 println!(
-                    "[FFT] Buffer has {} samples, returning {} for FFT",
-                    count,
-                    s.len()
+                    //"[FFT] Buffer has {} samples, returning {} for FFT",
+                    //count,
+                    //s.len()
                 );
             }
             s

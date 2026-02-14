@@ -29,7 +29,7 @@ export const useVisualizerStore = create<VisualizerState>()(
     persist(
         (set, get) => ({
             // Default settings
-            mode: 'bars',
+            mode: 'waveform',
             displayMode: 'off',
             sensitivity: 1.0,
             smoothing: 0.7,

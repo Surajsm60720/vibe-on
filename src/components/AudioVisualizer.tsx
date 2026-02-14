@@ -10,69 +10,40 @@ interface VisualizerData {
     waveform: number[];
 }
 
-// Subtle Particle class - gentle floating orbs
-class Particle {
-    x: number = 0;
-    y: number = 0;
-    vx: number = (Math.random() - 0.5) * 0.3;  // Much slower
-    vy: number = (Math.random() - 0.5) * 0.3;
-    size: number = Math.random() * 2 + 0.5;   // Smaller
-    alpha: number = Math.random() * 0.15 + 0.05;  // More transparent
-    life: number = Math.random() * 200 + 100;  // Longer life
+// Helper to parse hex color
+const hexToRgb = (hex: string) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : { r: 100, g: 100, b: 255 }; // Default fallback
+};
 
-    update(width: number, height: number, energy: number) {
-        this.x += this.vx * (1 + energy * 0.5);  // Less energy influence
-        this.y += this.vy * (1 + energy * 0.5);
-        this.life -= 0.3;
-
-        if (this.x < 0 || this.x > width || this.y < 0 || this.y > height || this.life <= 0) {
-            this.respawn(width, height);
-        }
-    }
-
-    respawn(width: number, height: number) {
-        // Spawn around the edges too, not just center
-        const edge = Math.random();
-        if (edge < 0.25) {
-            this.x = Math.random() * width;
-            this.y = 0;
-        } else if (edge < 0.5) {
-            this.x = Math.random() * width;
-            this.y = height;
-        } else if (edge < 0.75) {
-            this.x = 0;
-            this.y = Math.random() * height;
-        } else {
-            this.x = width;
-            this.y = Math.random() * height;
-        }
-        this.vx = (Math.random() - 0.5) * 0.5;  // Slower
-        this.vy = (Math.random() - 0.5) * 0.5;
-        this.life = Math.random() * 200 + 100;
-        this.alpha = Math.random() * 0.15 + 0.05;
-    }
-
-    draw(ctx: CanvasRenderingContext2D, color: string, _energy: number) {
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);  // No size scaling with energy
-        ctx.fillStyle = `rgba(${color}, ${this.alpha})`;
-        ctx.fill();
-    }
-}
+// Helper to interpolate colors
+const interpolateColor = (c1: { r: number, g: number, b: number }, c2: { r: number, g: number, b: number }, factor: number) => {
+    return {
+        r: Math.round(c1.r + (c2.r - c1.r) * factor),
+        g: Math.round(c1.g + (c2.g - c1.g) * factor),
+        b: Math.round(c1.b + (c2.b - c1.b) * factor)
+    };
+};
 
 export function FullscreenVisualizer() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const animationRef = useRef<number | null>(null);
-    const particlesRef = useRef<Particle[]>([]);
+    const coverImageRef = useRef<HTMLImageElement | null>(null);
+
+    // Performance optimization: Use ref for data to avoid React re-renders
+    const audioDataRef = useRef<{ bins: number[], waveform: number[] }>({
+        bins: new Array(64).fill(0),
+        waveform: new Array(128).fill(0)
+    });
 
     // Visualizer state
     const displayMode = useVisualizerStore(s => s.displayMode);
     const setDisplayMode = useVisualizerStore(s => s.setDisplayMode);
-    const mode = useVisualizerStore(s => s.mode);
     const sensitivity = useVisualizerStore(s => s.sensitivity);
-    const updateData = useVisualizerStore(s => s.updateData);
-    const frequencyBins = useVisualizerStore(s => s.frequencyBins);
-    const cycleMode = useVisualizerStore(s => s.cycleMode);
 
     // Theme colors
     const colors = useThemeStore(s => s.colors);
@@ -84,15 +55,39 @@ export function FullscreenVisualizer() {
     const resume = usePlayerStore(s => s.resume);
     const nextTrack = usePlayerStore(s => s.nextTrack);
     const prevTrack = usePlayerStore(s => s.prevTrack);
+    const activeSource = usePlayerStore(s => s.activeSource);
 
     const isVisible = displayMode === 'fullscreen';
 
-    // Initialize particles - fewer for subtle effect
+    // Load cover image logic (Keep it for potential center display or fallback)
     useEffect(() => {
-        if (isVisible) {
-            particlesRef.current = Array.from({ length: 20 }, () => new Particle());
+        if (!track || !isVisible) {
+            coverImageRef.current = null;
+            return;
         }
-    }, [isVisible]);
+
+        let isMounted = true;
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+
+        let src = '';
+        if (activeSource === 'local') {
+            src = `/cover/${encodeURIComponent(track.path)}`;
+        } else if (track.cover_image) {
+            src = track.cover_image;
+        }
+
+        if (src) {
+            img.src = src;
+            img.onload = () => {
+                if (isMounted) coverImageRef.current = img;
+            };
+        } else {
+            coverImageRef.current = null;
+        }
+
+        return () => { isMounted = false; };
+    }, [track, activeSource, isVisible]);
 
     // Handle resize
     useEffect(() => {
@@ -132,16 +127,12 @@ export function FullscreenVisualizer() {
                 case 'ArrowLeft':
                     prevTrack();
                     break;
-                case 'm':
-                case 'M':
-                    cycleMode();
-                    break;
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isVisible, isPlaying, pause, resume, nextTrack, prevTrack, setDisplayMode, cycleMode]);
+    }, [isVisible, isPlaying, pause, resume, nextTrack, prevTrack, setDisplayMode]);
 
     // Draw functions
     const drawRadialBars = useCallback((
@@ -152,170 +143,130 @@ export function FullscreenVisualizer() {
         bassEnergy: number
     ) => {
         const numBars = bins.length;
-        const baseRadius = Math.min(width, height) * 0.15;  // Smaller base
-        const maxBarHeight = Math.min(width, height) * 0.25;  // Shorter max
+        // Make radius responsive
+        const baseRadius = Math.min(width, height) * 0.15;
+        const maxBarHeight = Math.min(width, height) * 0.35; // Taller bars for simpler view
 
+        // Parse theme colors
+        const cPrimary = hexToRgb(colors.primary || '#bfc2ff');
+        const cSecondary = hexToRgb(colors.secondary || '#c6bfff');
+        const cTertiary = hexToRgb(colors.tertiary || '#ffb0cd');
+
+        // Draw Center Art if available
+        if (coverImageRef.current) {
+            const coreSize = baseRadius * 0.8 + bassEnergy * 10;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, coreSize, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(coverImageRef.current, centerX - coreSize, centerY - coreSize, coreSize * 2, coreSize * 2);
+            ctx.restore();
+
+            // Ring
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, coreSize, 0, Math.PI * 2);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = colors.outline || 'rgba(255,255,255,0.5)';
+            ctx.stroke();
+        } else {
+            // Default Glow if no art
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, baseRadius + bassEnergy * 40
+            );
+            gradient.addColorStop(0, `rgba(${cPrimary.r}, ${cPrimary.g}, ${cPrimary.b}, 0.5)`);
+            gradient.addColorStop(0.6, `rgba(${cPrimary.r}, ${cPrimary.g}, ${cPrimary.b}, 0.1)`);
+            gradient.addColorStop(1, 'transparent');
+
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, baseRadius + bassEnergy * 40, 0, Math.PI * 2);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        }
+
+        // Bars
         for (let i = 0; i < numBars; i++) {
             const angle = (i / numBars) * Math.PI * 2 - Math.PI / 2;
-            // Clamp value and use a softer curve (square root for better range)
             const rawValue = Math.min(bins[i] * sensitivity, 1);
-            const value = Math.sqrt(rawValue) * 0.7;  // Softer response
+            // Cubic ease for snappier bars
+            const value = Math.pow(rawValue, 0.8);
             const barHeight = value * maxBarHeight;
 
-            // Less bass influence on base radius
-            const bassOffset = Math.min(bassEnergy, 0.8) * 15;
-            const x1 = centerX + Math.cos(angle) * (baseRadius + bassOffset);
-            const y1 = centerY + Math.sin(angle) * (baseRadius + bassOffset);
-            const x2 = centerX + Math.cos(angle) * (baseRadius + barHeight + bassOffset);
-            const y2 = centerY + Math.sin(angle) * (baseRadius + barHeight + bassOffset);
+            // Bass kick effect on radius
+            const kick = Math.pow(bassEnergy, 2) * 20;
+            const r1 = baseRadius + 10 + kick;
+            const r2 = r1 + barHeight;
 
-            // Color gradient based on frequency
-            const hue = 260 + (i / numBars) * 60;
-            const saturation = 70 + Math.min(value * 20, 30);
-            const lightness = 45 + Math.min(value * 25, 40);
+            const x1 = centerX + Math.cos(angle) * r1;
+            const y1 = centerY + Math.sin(angle) * r1;
+            const x2 = centerX + Math.cos(angle) * r2;
+            const y2 = centerY + Math.sin(angle) * r2;
+
+            // Gradient Logic
+            const progress = i / numBars;
+            let r, g, b;
+
+            if (progress < 0.33) {
+                const p = progress / 0.33;
+                const c = interpolateColor(cPrimary, cSecondary, p);
+                r = c.r; g = c.g; b = c.b;
+            } else if (progress < 0.66) {
+                const p = (progress - 0.33) / 0.33;
+                const c = interpolateColor(cSecondary, cTertiary, p);
+                r = c.r; g = c.g; b = c.b;
+            } else {
+                const p = (progress - 0.66) / 0.34;
+                const c = interpolateColor(cTertiary, cPrimary, p);
+                r = c.r; g = c.g; b = c.b;
+            }
 
             ctx.beginPath();
             ctx.moveTo(x1, y1);
             ctx.lineTo(x2, y2);
-            ctx.strokeStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${0.6 + value * 0.3})`;
-            ctx.lineWidth = 3;
+            ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${0.8})`; // Higher opacity
+            ctx.lineWidth = 4; // Thicker bars
             ctx.lineCap = 'round';
             ctx.stroke();
         }
 
-        // Draw center glow
-        const gradient = ctx.createRadialGradient(
-            centerX, centerY, 0,
-            centerX, centerY, baseRadius + bassEnergy * 40
-        );
-        gradient.addColorStop(0, 'rgba(191, 194, 255, 0.3)');
-        gradient.addColorStop(0.5, 'rgba(191, 194, 255, 0.1)');
-        gradient.addColorStop(1, 'transparent');
+    }, [sensitivity, colors]);
 
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, baseRadius + bassEnergy * 40, 0, Math.PI * 2);
-        ctx.fillStyle = gradient;
-        ctx.fill();
-    }, [sensitivity, colors.primary]);
-
-    const drawOrbVisualizer = useCallback((
-        ctx: CanvasRenderingContext2D,
-        width: number, height: number,
-        centerX: number, centerY: number,
-        bins: number[],
-        bassEnergy: number,
-        midEnergy: number,
-        highEnergy: number
-    ) => {
-        const time = Date.now() * 0.001;
-        const baseRadius = Math.min(width, height) * 0.2;
-        const radiusModulation = bassEnergy * 80 * sensitivity;
-
-        for (let layer = 0; layer < 3; layer++) {
-            const layerOffset = layer * 0.3;
-            const points = 128;
-            const radius = baseRadius + radiusModulation * (1 - layer * 0.2);
-
-            ctx.beginPath();
-
-            for (let i = 0; i <= points; i++) {
-                const angle = (i / points) * Math.PI * 2;
-                const binIndex = Math.floor((i / points) * bins.length);
-                const value = (bins[binIndex] ?? 0) * sensitivity;
-
-                const noise = Math.sin(angle * 3 + time * 2 + layerOffset) * 0.3 +
-                    Math.sin(angle * 5 - time * 1.5) * 0.2 +
-                    Math.sin(angle * 7 + time * 3) * 0.1;
-
-                const r = radius + value * 150 + noise * 30 * (1 + bassEnergy);
-                const x = centerX + Math.cos(angle) * r;
-                const y = centerY + Math.sin(angle) * r;
-
-                if (i === 0) {
-                    ctx.moveTo(x, y);
-                } else {
-                    ctx.lineTo(x, y);
-                }
-            }
-
-            ctx.closePath();
-
-            const hue = 260 + layer * 20 - midEnergy * 30;
-            const saturation = 70 + highEnergy * 30;
-            const lightness = 50 + layer * 10;
-            const alpha = 0.4 - layer * 0.1;
-
-            ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
-            ctx.fill();
-
-            ctx.strokeStyle = `hsla(${hue + 10}, ${saturation}%, ${lightness + 20}%, ${alpha + 0.2})`;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-        }
-
-        // Inner core glow
-        const coreGradient = ctx.createRadialGradient(
-            centerX, centerY, 0,
-            centerX, centerY, baseRadius * 0.8
-        );
-        coreGradient.addColorStop(0, `rgba(255, 255, 255, ${0.3 + bassEnergy * 0.3})`);
-        coreGradient.addColorStop(0.5, `rgba(200, 150, 255, ${0.2 + midEnergy * 0.2})`);
-        coreGradient.addColorStop(1, 'transparent');
-
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, baseRadius * 0.8, 0, Math.PI * 2);
-        ctx.fillStyle = coreGradient;
-        ctx.fill();
-    }, [sensitivity]);
-
-    const updateAndDrawParticles = useCallback((
-        ctx: CanvasRenderingContext2D,
-        width: number, height: number,
-        energy: number
-    ) => {
-        const particles = particlesRef.current;
-
-        for (const particle of particles) {
-            particle.update(width, height, energy);
-            particle.draw(ctx, '191, 194, 255', energy);  // Use fixed RGB values
-        }
-    }, []);
 
     // Main draw function
     const draw = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
 
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { alpha: false });
         if (!ctx) return;
 
         const { width, height } = canvas;
         const centerX = width / 2;
         const centerY = height / 2;
 
-        // Clear canvas completely each frame (no ghost trails)
-        ctx.fillStyle = '#0a0a14';
+        // Clean Background
+        ctx.fillStyle = colors.surface;
         ctx.fillRect(0, 0, width, height);
 
-        // Get audio energy
-        const bins = frequencyBins.length > 0 ? frequencyBins : new Array(64).fill(0);
+        // Vignette
+        const bgGradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, Math.max(width, height));
+        bgGradient.addColorStop(0, 'rgba(0,0,0,0)');
+        bgGradient.addColorStop(1, 'rgba(0,0,0,0.4)');
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(0, 0, width, height);
+
+        const { bins } = audioDataRef.current;
+
+        // Calculate Energy for kicks
         const bassEnergy = bins.slice(0, 8).reduce((a: number, b: number) => a + b, 0) / 8;
-        const midEnergy = bins.slice(8, 32).reduce((a: number, b: number) => a + b, 0) / 24;
-        const highEnergy = bins.slice(32).reduce((a: number, b: number) => a + b, 0) / 32;
-        const totalEnergy = (bassEnergy + midEnergy + highEnergy) / 3;
 
-        if (mode === 'bars') {
-            drawRadialBars(ctx, width, height, centerX, centerY, bins, bassEnergy);
-        } else {
-            drawOrbVisualizer(ctx, width, height, centerX, centerY, bins, bassEnergy, midEnergy, highEnergy);
-        }
+        // Force Bars Mode
+        drawRadialBars(ctx, width, height, centerX, centerY, bins, bassEnergy);
 
-        // Draw particles
-        updateAndDrawParticles(ctx, width, height, totalEnergy * sensitivity);
+    }, [sensitivity, colors, drawRadialBars]);
 
-    }, [frequencyBins, mode, sensitivity, drawRadialBars, drawOrbVisualizer, updateAndDrawParticles]);
-
-    // Animation loop - runs continuously when visible
+    // Animation loop
     useEffect(() => {
         if (!isVisible) return;
 
@@ -325,8 +276,12 @@ export function FullscreenVisualizer() {
             if (!mounted) return;
             try {
                 const data = await invoke<VisualizerData>('get_visualizer_data');
-                if (mounted) {
-                    updateData(data.frequency_bins, data.waveform);
+                // Update the REF instead of state
+                if (mounted && data) {
+                    audioDataRef.current = {
+                        bins: data.frequency_bins,
+                        waveform: data.waveform
+                    };
                 }
             } catch (e) {
                 // Silently fail
@@ -348,7 +303,7 @@ export function FullscreenVisualizer() {
                 cancelAnimationFrame(animationRef.current);
             }
         };
-    }, [isVisible, updateData, draw]);
+    }, [isVisible, draw]);
 
     if (!isVisible) return null;
 
@@ -359,7 +314,8 @@ export function FullscreenVisualizer() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.5 }}
-                className="fixed inset-0 z-[200] bg-[#0a0a14] flex flex-col"
+                className="fixed inset-0 z-[200] flex flex-col"
+                style={{ backgroundColor: colors.surface }}
             >
                 {/* Canvas */}
                 <canvas
@@ -367,26 +323,22 @@ export function FullscreenVisualizer() {
                     className="absolute inset-0 w-full h-full"
                 />
 
+                {/* Visualizer Controls */}
+                <div className="absolute top-8 left-8 flex flex-col gap-2 pointer-events-auto">
+                    <h1 className="text-white/80 text-xl font-light tracking-wider" style={{ color: colors.onSurface }}>
+                        Visualizer
+                    </h1>
+                    <p className="text-white/40 text-xs tracking-wider uppercase" style={{ color: colors.onSurfaceVariant }}>
+                        ESC to close
+                    </p>
+                </div>
+
                 {/* Top bar with close button */}
-                <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-start z-10">
-                    <div className="flex flex-col gap-1">
-                        <span
-                            className="text-sm font-medium opacity-60"
-                            style={{ color: colors.onSurface }}
-                        >
-                            {mode === 'bars' ? 'Radial Bars' : 'Organic Flow'}
-                        </span>
-                        <span
-                            className="text-xs opacity-40"
-                            style={{ color: colors.onSurfaceVariant }}
-                        >
-                            Press M to switch • ESC to close
-                        </span>
-                    </div>
+                <div className="absolute top-0 left-0 right-0 p-6 flex justify-end items-start z-10">
                     <button
                         onClick={() => setDisplayMode('off')}
-                        className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-colors"
-                        style={{ color: colors.onSurface }}
+                        className="p-3 rounded-full hover:bg-white/10 transition-colors"
+                        style={{ color: colors.onSurface, backgroundColor: colors.surfaceContainer }}
                     >
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M18 6L6 18M6 6l12 12" />
@@ -399,13 +351,13 @@ export function FullscreenVisualizer() {
                     {/* Track info */}
                     <div className="text-center">
                         <h2
-                            className="text-2xl font-semibold mb-1"
+                            className="text-2xl font-semibold mb-1 shadow-black drop-shadow-md"
                             style={{ color: colors.onSurface }}
                         >
                             {track?.title || 'No Track Playing'}
                         </h2>
                         <p
-                            className="text-sm opacity-60"
+                            className="text-sm opacity-80"
                             style={{ color: colors.onSurfaceVariant }}
                         >
                             {track?.artist || 'Unknown Artist'}
@@ -426,10 +378,7 @@ export function FullscreenVisualizer() {
                         <button
                             onClick={() => isPlaying ? pause() : resume()}
                             className="p-4 rounded-full transition-colors"
-                            style={{
-                                backgroundColor: colors.primary,
-                                color: colors.onPrimary
-                            }}
+                            style={{ backgroundColor: colors.primary, color: colors.onPrimary }}
                         >
                             {isPlaying ? (
                                 <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">

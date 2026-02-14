@@ -651,6 +651,23 @@ export function PlayerBar() {
                                     </div>
                                 </div>
 
+                                {/* Visualizer Launch Button (Minimal) */}
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setVisualizerDisplayMode('fullscreen');
+                                    }}
+                                    className="p-2 rounded-full transition-colors text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest"
+                                    title="Open Fullscreen Visualizer (V)"
+                                >
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                        <rect x="4" y="14" width="3" height="6" rx="1" />
+                                        <rect x="9" y="10" width="3" height="10" rx="1" />
+                                        <rect x="14" y="6" width="3" height="14" rx="1" />
+                                        <rect x="19" y="12" width="3" height="8" rx="1" />
+                                    </svg>
+                                </button>
+
                                 {/* Time */}
                                 <div className="text-label-small font-medium text-on-surface-variant tabular-nums z-10">
                                     {formatTime(position_secs)} / {track ? formatTime(track.duration_secs) : '0:00'}
